@@ -1,0 +1,35 @@
+{
+  "name": "cadfly",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Games made with JetLag",
+  "scripts": {
+    "start": "jetlag2d serve",
+    "create": "jetlag2d create",
+    "serve": "jetlag2d serve",
+    "build": "jetlag2d build && node scripts/postbuild.mjs",
+    "zip": "jetlag2d zip",
+    "clean": "jetlag2d clean",
+    "check": "tsc --noEmit",
+    "help": "jetlag2d help",
+    "test": "vitest run",
+    "check:tests": "tsc -p tsconfig.tests.json",
+    "eval": "tsx --tsconfig tsconfig.tests.json eval/run.ts",
+    "svg": "tsx --tsconfig tsconfig.tests.json scripts/blocks-svg.ts"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "^0.2.86",
+    "jetlag2d": "2.0.0",
+    "manifold-3d": "^3.5.4",
+    "opentype.js": "^2.0.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/three": "^0.186.0",
+    "ajv": "^8.20.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

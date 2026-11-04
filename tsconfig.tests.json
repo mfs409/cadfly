@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "types": [
+      "node"
+    ],
+    "paths": {}
+  },
+  "include": [
+    "src/cadfly/**/*.ts",
+    "tests/**/*.ts",
+    "eval/**/*.ts",
+    "scripts/**/*.ts"
+  ]
+}
