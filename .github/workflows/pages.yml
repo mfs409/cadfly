@@ -1,0 +1,43 @@
+# Builds cadfly and publishes it with GitHub Pages: the app at the site's root
+# (index.html) and the viewer beside it (cadfly-viewer.html).
+#
+# One-time setup: in the repository's Settings > Pages, set Source to
+# "GitHub Actions". After that every push to main deploys.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A newer push replaces a deploy that is still running
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # nothing broken is published
+      - run: npm run check && npm run check:tests && npm test
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/cadfly
+      - id: deployment
+        uses: actions/deploy-pages@v4
