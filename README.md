@@ -19,7 +19,7 @@ Build 3D geometry using intuitive drag-and-drop logic blocks, or by describing y
 
 ## Using CADFly
 
-Most use cases can run CADFly directly from [GitHub Pages](TBD).
+Most use cases can run CADFly directly from [GitHub Pages](https://mfs409.github.io/cadfly/).
 The [CADFly Book](TBD) can help you learn how to use CADFly.
 It will also teach you a bit about programming and AI.
 
