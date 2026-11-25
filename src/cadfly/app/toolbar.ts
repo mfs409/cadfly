@@ -205,6 +205,8 @@ export function createToolbar(host: ToolbarHost): () => ToolbarButton[] {
       action: () => {
         download(PROJECT_FILE_NAME, serializeProject(project.program(), project.files()), "application/json");
         project.markSaved();
+        // the download itself shows nothing on some browsers, and a message from before would still be on the screen
+        host.notify(`Saved ${PROJECT_FILE_NAME}: look for it in your downloads folder.`);
       },
     },
     { group: "file", label: "Load", color: "#2f7fe0", enabled: () => true, action: askForFile },
