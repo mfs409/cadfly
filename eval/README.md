@@ -1,4 +1,4 @@
-# eval
+# CADFly Agent Evaluation
 
 The purpose of this folder is to provide a way to assess how well a model turns plain-language requests into blocks.
 
