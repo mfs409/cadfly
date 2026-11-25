@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { cross, polygonArea, cross2, turn } from "../src/cadfly/geometry/vec";
 
+/** The flat vector functions. */
+
 describe("the flat vector functions", () => {
   // cross2 is the z of the 3D cross product, so the two always agree
   test("the 2D cross product is the z of the 3D one, and its sign says which way b is turned from a", () => {

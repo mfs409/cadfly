@@ -3,16 +3,18 @@ import { applyOps } from "../src/cadfly/assistant/ops";
 import type { Kernel } from "../src/cadfly/geometry/kernel";
 import { createManifoldKernel } from "../src/cadfly/geometry/manifold";
 import { runProgram } from "../src/cadfly/language/run";
-import { snapshot } from "../src/cadfly/language/snapshot";
-import { displayShapes, readoutText } from "../src/cadfly/view/show";
+import { snapshotOf } from "../src/cadfly/snapshot";
+import { readoutText } from "../src/cadfly/ui/view/show";
+
+/** The readout over the 3D view. */
 
 let k: Kernel;
 beforeAll(async () => {
   k = await createManifoldKernel();
 });
-const snap = (text: string) => snapshot(runProgram(k, applyOps([], [{ op: "append", blocks: text }]).program));
+const snap = (text: string) => snapshotOf(runProgram(k, applyOps([], [{ op: "append", blocks: text }]).program));
 
-// What the readout over the 3D view says, for the app and for the viewer page
+// What the readout over the 3D view says, for the app
 describe("the readout", () => {
   test("a solid gives its size and volume", () => {
     expect(readoutText(snap("box w=10 d=20 h=30"))).toBe("1 shape\nsize  10 x 20 x 30 mm\nvolume  6,000 mm3");
@@ -23,12 +25,6 @@ describe("the readout", () => {
   });
 
   test("an empty program has nothing to measure", () => {
-    expect(readoutText(snapshot(runProgram(k, [])))).toBeUndefined();
-  });
-
-  test("the shapes to draw are the result's shapes", () => {
-    const s = snap("box w=10 d=20 h=30");
-    expect(displayShapes(s)).toHaveLength(1);
-    expect(displayShapes(s)[0].mesh).toBe(s.shapes[0].mesh);
+    expect(readoutText(snapshotOf(runProgram(k, [])))).toBeUndefined();
   });
 });

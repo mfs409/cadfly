@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { ExprError, RESERVED, type Vars, evaluateExpr } from "../src/cadfly/geometry/expr";
 
+/** The expression language behind every number field. */
+
 /** Like evaluateExpr, but NaN instead of an ExprError: what a field being typed into needs (an incomplete expression is not an error yet) */
 function evalExpr(src: string, vars?: Vars): number {
   try {

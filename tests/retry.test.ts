@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { generateWithRetry, isSamplerGlitch } from "../src/cadfly/assistant/retry";
 
+/** Retrying when the model's sampler glitches. */
+
 const glitch = () => new Error("Grammar matcher rejected the newly sampled token.");
 
 describe("retrying when the sampler glitches", () => {
@@ -48,6 +50,14 @@ describe("retrying when the sampler glitches", () => {
     let n = 0;
     await expect(generateWithRetry(async () => { n++; throw new Error("out of memory"); })).rejects.toThrow("out of memory");
     expect(n).toBe(1);
+  });
+
+  test("an unrelated error that says out of range is not retried", async () => {
+    let n = 0;
+    await expect(generateWithRetry(async () => { n++; throw new RangeError("index out of range"); })).rejects.toThrow("index out of range");
+    expect(n).toBe(1);
+    expect(isSamplerGlitch(new Error("Invalid token id 17 out of range"))).toBe(true); // the grammar engine's own words still count
+    expect(isSamplerGlitch(new Error("index out of range"))).toBe(false);
   });
 
   test("a stopped request is not retried", async () => {

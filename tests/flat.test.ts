@@ -3,6 +3,12 @@ import { applyOps } from "../src/cadfly/assistant/ops";
 import type { Kernel } from "../src/cadfly/geometry/kernel";
 import { createManifoldKernel } from "../src/cadfly/geometry/manifold";
 import { runProgram } from "../src/cadfly/language/run";
+import { box } from "./helpers/blocks";
+
+/**
+ * Flat shapes: sketches that are not extruded yet can be drawn, combined, moved
+ * and measured.
+ */
 
 let k: Kernel;
 beforeAll(async () => {
@@ -12,10 +18,12 @@ beforeAll(async () => {
 const run = (text: string) => runProgram(k, applyOps([], [{ op: "append", blocks: text }]).program);
 const area = (text: string) => run(text).flat!.area();
 const vol = (text: string) => run(text).combined!.volume();
+
 const bounds = (text: string) => {
   const b = run(text).combined!.bounds();
   return [...b.min, ...b.max];
 };
+
 const close = (got: number[], want: number[], digits = 3) => want.forEach((v, i) => expect(got[i], `item ${i}`).toBeCloseTo(v, digits));
 const disc = (r: number) => 0.5 * 64 * r * r * Math.sin((2 * Math.PI) / 64);
 
@@ -24,7 +32,7 @@ describe("drawing without extruding", () => {
     const r = run("rectangle w=40 h=20");
     expect(r.problem).toBeUndefined();
     expect(r.shapes).toHaveLength(1);
-    expect(r.shapes[0].flat).toBeDefined();
+    expect(r.shapes[0].flat!.area()).toBeCloseTo(800, 3);
     expect(r.flat!.area()).toBeCloseTo(800, 3);
     expect(r.combined).toBeNull();
     // what is drawn is a thin slab on the ground
@@ -86,6 +94,40 @@ describe("combining flat shapes", () => {
 
   test("a cut that leaves nothing is said so", () => {
     expect(run("subtract\n  rectangle w=4 h=4\n  rectangle w=10 h=10").problem!.message).toMatch(/leaves nothing/);
+  });
+});
+
+describe("the outlines of the pieces a flat shape is put together from", () => {
+  // the view draws one outline for each piece when there are several, and none
+  // besides the shape's own when there is one
+  const outlines = (text: string) => run(text).shapes.filter((s) => s.piece).length;
+  const two = "union\n  rectangle w=20 h=20\n  circle r=5";
+
+  test("a shape of one piece draws no extra outlines, however it was made", () => {
+    expect(outlines("rectangle w=10 h=10")).toBe(0);
+    expect(outlines("circle r=5")).toBe(0);
+    expect(outlines("transform x=3\n  rectangle w=10 h=10")).toBe(0);
+    expect(outlines("round radius=1\n  rectangle w=10 h=10")).toBe(0);
+    expect(outlines("round radius=1\n  union\n    rectangle w=20 h=20\n    circle r=5")).toBe(0);
+    expect(outlines("subtract\n  rectangle w=20 h=20\n  circle r=5")).toBe(0);
+    expect(outlines("intersect\n  rectangle w=20 h=20\n  circle r=5")).toBe(0);
+    expect(outlines("mirror axis=x\n  rectangle w=10 h=10 u=5")).toBe(0);
+  });
+
+  test("a shape put together from several pieces draws one outline for each", () => {
+    expect(outlines(two)).toBe(2);
+    expect(outlines("union\n  rectangle w=20 h=20\n  circle r=5\n  circle r=2 u=8")).toBe(3);
+  });
+
+  test("the pieces are kept when the shape is moved, mirrored or has holes cut from it", () => {
+    expect(outlines(`transform x=3 y=1\n  ${two.replaceAll("\n", "\n  ")}`)).toBe(2);
+    expect(outlines(`mirror axis=x\n  ${two.replaceAll("\n", "\n  ")}`)).toBe(2);
+    expect(outlines("union\n  rectangle w=20 h=20\n  circle r=5\n  circle r=2 u=8 hole")).toBe(2);
+  });
+
+  test("mirroring a single piece into both sides makes two pieces", () => {
+    expect(outlines("mirror axis=x both\n  rectangle w=10 h=10 u=15")).toBe(2);
+    expect(outlines(`mirror axis=x both\n  ${two.replaceAll("\n", "\n  ")}`)).toBe(4);
   });
 });
 
@@ -175,34 +217,10 @@ describe("what takes flat shapes", () => {
   });
 });
 
-describe("the flat examples", async () => {
-  const { DEMOS } = await import("../src/cadfly/language/demos");
-  const solid = (name: string) => {
-    const r = runProgram(k, DEMOS.find((e) => e.name === name)!.program);
-    expect(r.problem, name).toBeUndefined();
-    return r.combined!;
-  };
-  test("the washer: a ring 2 thick", () => {
-    const v = solid("Washer").volume();
-    expect(v).toBeCloseTo((disc(10) - disc(4)) * 2, 2);
-    expect(solid("Washer").bounds().max[2]).toBeCloseTo(2, 3);
-  });
-  test("the flat plate: the joined outline less two holes, with rounded corners, 4 thick", () => {
-    const plate = solid("Flat plate");
-    const b = plate.bounds();
-    expect(b.max[2]).toBeCloseTo(4, 3);
-    expect(b.max[0]).toBeCloseTo(45, 1); // the circle at x = 30, radius 15, reaches 45
-    expect(b.min[0]).toBeCloseTo(-30, 1);
-    // less than the plain union, which is a 60 x 30 rectangle and a circle sticking out of one end (half of it outside)
-    expect(plate.volume() / 4).toBeLessThan(1800 + disc(15) / 2);
-    expect(plate.volume() / 4).toBeGreaterThan(1800 - 100);
-  });
-});
-
 describe("the eye on an extrude or revolve shows its sketch instead of the 3D shape", () => {
   const withEye = (text: string) => {
     const program = applyOps([], [{ op: "append", blocks: text }]).program;
-    program[0].hidden = true;
+    program[0].blocks[0].hidden = true;
     return program;
   };
 
@@ -235,7 +253,7 @@ describe("the eye on an extrude or revolve shows its sketch instead of the 3D sh
   test("a hidden cutter in a subtract shows its sketch, and the cut is left out of the result", () => {
     const program = applyOps([], [{ op: "append", blocks: "subtract\n  extrude height=10\n    rectangle w=40 h=40\n  extrude height=20\n    circle r=8" }]).program;
     const whole = runProgram(k, program).combined!.volume();
-    program[0].inner![1].hidden = true;
+    program[0].blocks[0].inner![1].hidden = true;
     const r = runProgram(k, program);
     expect(r.problem).toBeUndefined();
     expect(r.combined!.volume()).toBeCloseTo(16000, 0); // the plate, uncut
@@ -246,18 +264,18 @@ describe("the eye on an extrude or revolve shows its sketch instead of the 3D sh
   test("it moves with a transform around it, and goes with a hidden holder", () => {
     const text = "transform x=50 z=5\n  extrude height=10\n    rectangle w=10 h=10";
     const program = applyOps([], [{ op: "append", blocks: text }]).program;
-    program[0].inner![0].hidden = true;
+    program[0].blocks[0].inner![0].hidden = true;
     const r = runProgram(k, program);
     const b = r.shapes.find((s) => s.preview)!.solid.bounds();
     expect((b.min[0] + b.max[0]) / 2).toBeCloseTo(50, 3);
     expect(b.min[2]).toBeCloseTo(5, 3);
-    program[0].hidden = true; // the holder hidden too: everything inside goes, the sketch with it
+    program[0].blocks[0].hidden = true; // the holder hidden too: everything inside goes, the sketch with it
     expect(runProgram(k, program).shapes).toEqual([]);
   });
 
   test("a loft shows the two outlines it blends between; a sweep shows its profile where the path starts and where it ends", () => {
     const loft = applyOps([], [{ op: "append", blocks: "loft height=10\n  bottom\n    rectangle w=10 h=10\n  top\n    circle r=4" }]).program;
-    loft[0].hidden = true;
+    loft[0].blocks[0].hidden = true;
     const l = runProgram(k, loft);
     expect(l.problem).toBeUndefined();
     expect(l.combined).toBeNull();
@@ -266,7 +284,7 @@ describe("the eye on an extrude or revolve shows its sketch instead of the 3D sh
     expect(heights[0]).toBeCloseTo(0, 3);
     expect(heights[1]).toBeCloseTo(10, 3); // the second is a height up
     const sweep = applyOps([], [{ op: "append", blocks: "sweep\n  circle r=2\n  vertex x=0 y=0 z=0\n  vertex x=0 y=0 z=30\n  vertex x=20 y=0 z=50" }]).program;
-    sweep[0].hidden = true;
+    sweep[0].blocks[0].hidden = true;
     const s = runProgram(k, sweep);
     expect(s.problem).toBeUndefined();
     expect(s.combined).toBeNull();

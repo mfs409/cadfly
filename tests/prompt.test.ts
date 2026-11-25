@@ -1,23 +1,30 @@
 import Ajv from "ajv";
 import { beforeAll, describe, expect, test } from "vitest";
-import { ScriptedBackend } from "./scripted";
+import { ScriptedBackend } from "./helpers/scripted";
 import { WORKED_EXAMPLES } from "../src/cadfly/assistant/workedExamples";
-import { applyOps, opsAsText } from "../src/cadfly/assistant/ops";
+import { applyOps } from "../src/cadfly/assistant/ops";
 import { DEFAULT_BUDGET, buildMessages, estimateTokens, programView, systemPrompt } from "../src/cadfly/assistant/prompt";
-import { replySchema } from "../src/cadfly/assistant/schema";
+import { answerSchema } from "../src/cadfly/assistant/schema";
 import type { Kernel } from "../src/cadfly/geometry/kernel";
 import { createManifoldKernel } from "../src/cadfly/geometry/manifold";
 import { COMMANDS } from "../src/cadfly/language/commands";
-import { allBlocks } from "../src/cadfly/language/edit";
+import { allBlocks, createEmptyProgram } from "../src/cadfly/language/program";
+import { modeByName } from "../src/cadfly/ui/modes";
 import { runProgram } from "../src/cadfly/language/run";
+import { oneScript } from "./helpers/script-helpers";
+import { blk } from "./helpers/blocks";
 import type { Block, Program } from "../src/cadfly/language/types";
+
+/**
+ * The instructions and program text given to the model, and how they fit its
+ * window.
+ */
 
 let k: Kernel;
 beforeAll(async () => {
   k = await createManifoldKernel();
 });
 
-const blk = (id: string, kind: string, args: Record<string, string | boolean> = {}, inner?: Block[]): Block => ({ id, kind, args, ...(inner ? { inner } : {}) });
 
 describe("the instructions", () => {
   const text = systemPrompt();
@@ -26,24 +33,42 @@ describe("the instructions", () => {
     for (const c of COMMANDS) {
       expect(text, c.id).toContain(`- ${c.id}`);
       expect(text, c.id).toContain(c.hint);
-      for (const p of c.params) expect(text, `${c.id}.${p.id}`).toContain(p.id);
+      const line = text.split("\n").find((l) => l.startsWith(`- ${c.id} `) || l.startsWith(`- ${c.id}:`))!; // the block's own line says its fields
+      for (const p of c.params.filter((param) => param.type.kind !== "caption")) expect(line, `${c.id}.${p.id}`).toMatch(new RegExp(`(^|[^\\w])${p.id}([^\\w]|$)`));
     }
   });
 
   test("it says how to reply, and what the ops are", () => {
-    for (const w of ["JSON only", "\"ops\"", "append", "insert_after", "insert_into", "\"op\":\"set\"", "delete", "clear", "language", "wrap", "unwrap", "one block per line", "indented"]) expect(text).toContain(w);
+    expect(text).toContain('"ops"');
+    for (const op of ["append", "insert_after", "insert_into", "set", "wrap", "unwrap", "delete", "clear"]) expect(text, op).toContain(`{"op":"${op}"`);
   });
 
   test("the instructions leave room in a 4096-token window", () => {
     expect(estimateTokens(text)).toBeLessThan(3600);
   });
+
+  test("what the instructions say about scripts is short, and costs less still in a small window", () => {
+    const builder = modeByName("Builder")!;
+    const without = { ...builder, scripts: false };
+    const extra = (compact: boolean) => systemPrompt({ mode: builder, compact }).length - systemPrompt({ mode: without, compact }).length;
+    expect(extra(true)).toBeGreaterThan(0);
+    expect(extra(true)).toBeLessThan(extra(false));
+    expect(extra(false)).toBeLessThan(systemPrompt({ mode: without }).length / 5); // a small part of the whole
+  });
+
+  test("a mode with scripts uses the word script throughout (no define, part or function wording)", () => {
+    const full = systemPrompt({ mode: modeByName("Builder") });
+    expect(full).toContain('"op":"script"');
+    expect(full).toMatch(/Other scripts run only where a use block names them/);
+    expect(full).not.toMatch(/\bdefine\b/i);
+  });
 });
 
 describe("showing the program", () => {
-  const p: Program = [
+  const p: Program = oneScript([
     blk("b1", "set", { name: "w", value: "40" }),
     blk("b2", "extrude", { name: "my plate", plane: "XY", offset: "0", height: "w / 8" }, [blk("b3", "rectangle", { w: "w", h: "w" }), blk("b4", "circle", { r: "3", hole: true })]),
-  ];
+  ]);
 
   test("one line per block, inside blocks indented, flags shown only when set", () => {
     expect(programView(p).split("\n")).toEqual([
@@ -72,15 +97,24 @@ describe("showing the program", () => {
 
   test("an empty program says so", () => {
     expect(programView([])).toBe("(empty)");
+    expect(programView(createEmptyProgram())).toBe("(empty)");
+  });
+
+  test("a script with no blocks is still listed, so the model knows it is there", () => {
+    const p: Program = [
+      { id: "s1", name: "build", blocks: [] },
+      { id: "s2", name: "leg", inputs: "w", blocks: [] },
+    ];
+    expect(programView(p)).toBe("# script leg (inputs: w)\n# script build");
   });
 });
 
 describe("fitting a request into the window", () => {
   const long = (n: number): Program =>
-    Array.from({ length: n }, (_, i) => blk(`b${i + 1}`, "box", { name: `shape number ${i + 1}`, w: "10", d: "20", h: "30" }));
+    oneScript(Array.from({ length: n }, (_, i) => blk(`b${i + 1}`, "box", { name: `shape number ${i + 1}`, w: "10", d: "20", h: "30" })));
 
   test("a short program gets the instructions, all the examples, and the request last", () => {
-    const built = buildMessages({ program: [blk("b1", "box", { name: "a" })], history: [] }, "make it taller", { context: 7500, reply: 700 });
+    const built = buildMessages({ program: oneScript([blk("b1", "box", { name: "a" })]), history: [] }, "make it taller", { context: 7500, reply: 700 });
     const m = built.messages;
     expect(m[0].role).toBe("system");
     expect(m.at(-1)!.role).toBe("user");
@@ -92,7 +126,7 @@ describe("fitting a request into the window", () => {
   });
 
   test("in a 4096-token window most of the examples still fit", () => {
-    const built = buildMessages({ program: [blk("b1", "box", { name: "a" })], history: [] }, "make it taller");
+    const built = buildMessages({ program: oneScript([blk("b1", "box", { name: "a" })]), history: [] }, "make it taller");
     expect(built.trimmed.examples).toBeLessThanOrEqual(18);
     expect(built.tokens).toBeLessThanOrEqual(DEFAULT_BUDGET.context - DEFAULT_BUDGET.reply);
   });
@@ -130,7 +164,7 @@ describe("fitting a request into the window", () => {
   });
 
   test("a problem in the program is told to the model", () => {
-    const built = buildMessages({ program: [blk("b1", "box", { w: "oops" })], problem: { blockId: "b1", message: 'width: unknown variable "oops"' }, history: [] }, "fix it");
+    const built = buildMessages({ program: oneScript([blk("b1", "box", { w: "oops" })]), problem: { blockId: "b1", message: 'width: unknown variable "oops"' }, history: [] }, "fix it");
     expect(built.messages.at(-1)!.content).toContain('Problem in b1: width: unknown variable "oops"');
   });
 
@@ -144,16 +178,16 @@ describe("fitting a request into the window", () => {
 
 describe("the worked examples", () => {
   const ajv = new Ajv({ strict: false });
-  const valid = ajv.compile(replySchema());
+  const valid = ajv.compile(answerSchema());
 
   test("each one is a reply the schema accepts", () => {
-    for (const ex of WORKED_EXAMPLES) expect(valid({ ops: opsAsText(ex.ops), reply: ex.reply }), ex.user).toBe(true);
+    for (const ex of WORKED_EXAMPLES) expect(valid({ ops: ex.ops, reply: ex.reply }), ex.user).toBe(true);
   });
 
   test("each one does what its reply says, and the result runs with nothing wrong", () => {
     for (const ex of WORKED_EXAMPLES) {
-      const { program, changes } = applyOps(ex.program, ex.ops);
-      if (ex.ops.length) expect(changes.length, ex.user).toBeGreaterThan(0);
+      const { program, changeLog } = applyOps(ex.program, ex.ops);
+      if (ex.ops.length) expect(changeLog.length, ex.user).toBeGreaterThan(0);
       const r = runProgram(k, program);
       expect(r.problem, ex.user).toBeUndefined();
       // hiding the only shape leaves nothing to show; a flat shape (not extruded yet) is shown but is not a solid
@@ -165,7 +199,7 @@ describe("the worked examples", () => {
     const [a, b, c] = WORKED_EXAMPLES.map((ex) => applyOps(ex.program, ex.ops).program);
     expect(allBlocks(a).filter((x) => x.kind === "circle")).toHaveLength(4);
     expect(allBlocks(b).filter((x) => x.kind === "circle").map((x) => x.args.r)).toEqual(["4", "4", "4", "4"]);
-    expect(c.map((x) => x.kind)).toEqual(["extrude", "box"]);
+    expect(c[0].blocks.map((x) => x.kind)).toEqual(["extrude", "box"]);
     const r = runProgram(k, c);
     expect(r.shapes).toHaveLength(2);
     expect(r.combined!.bounds().max[2]).toBeCloseTo(15); // a 5 thick plate (from z = 0) with a 10 mm cube on it

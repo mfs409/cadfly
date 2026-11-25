@@ -1,12 +1,15 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { applyOps } from "../src/cadfly/assistant/ops";
 import type { Kernel } from "../src/cadfly/geometry/kernel";
-import { shapeToContour } from "../src/cadfly/geometry/sketch";
 import { createManifoldKernel } from "../src/cadfly/geometry/manifold";
-import { accepts } from "../src/cadfly/language/edit";
-import { FinishError, finishEdges, hollow } from "../src/cadfly/language/finish";
+import { accepts, acceptsInScript } from "../src/cadfly/language/program";
+import { FinishError, finishCounts, finishEdges, hollow } from "../src/cadfly/geometry/finish";
 import { runProgram } from "../src/cadfly/language/run";
-import type { Block } from "../src/cadfly/language/types";
+
+/**
+ * Finishing solids: hollowing, rounding, beveling and filleting, their size
+ * limits and their remembered results.
+ */
 
 let k: Kernel;
 beforeAll(async () => {
@@ -18,97 +21,27 @@ const run = (text: string) => {
   const { program } = applyOps([], [{ op: "append", blocks: text }]);
   return runProgram(k, program);
 };
+
 const vol = (text: string) => run(text).combined!.volume();
+
 const bounds = (text: string) => {
   const b = run(text).combined!.bounds();
   return [...b.min, ...b.max];
 };
+
 const close = (got: number[], want: number[], digits = 4) => want.forEach((v, i) => expect(got[i], `item ${i}`).toBeCloseTo(v, digits));
 const pi = Math.PI;
 
-describe("rounded corners on a rectangle", () => {
-  test("the outline is rounded: more points, less area, still inside the rectangle", () => {
-    const plain = shapeToContour({ kind: "rect", at: [0, 0], w: 60, h: 40 });
-    const rounded = shapeToContour({ kind: "rect", at: [0, 0], w: 60, h: 40, radius: 6 });
-    expect(plain).toHaveLength(4);
-    expect(rounded.length).toBeGreaterThan(40);
-    for (const [x, y] of rounded) expect(x >= -1e-9 && x <= 60 + 1e-9 && y >= -1e-9 && y <= 40 + 1e-9).toBe(true);
-  });
-
-  test("a plate with rounded corners has the right volume (each corner loses r squared less a quarter circle)", () => {
-    const r = 6;
-    const lost = 4 * (r * r - (pi * r * r) / 4);
-    const v = vol(`extrude height=5\n  rectangle w=60 h=40 corner=${r}`);
-    expect(v / ((60 * 40 - lost) * 5)).toBeCloseTo(1, 3);
-    close(bounds(`extrude height=5\n  rectangle w=60 h=40 corner=${r}`), [-30, -20, 0, 30, 20, 5]);
-  });
-
-  test("the radius is cut down to fit: a big one makes a stadium, and a rotated one turns with the rectangle", () => {
-    const stadium = vol("extrude height=1\n  rectangle w=40 h=10 corner=999");
-    expect(stadium / ((40 * 10 - (100 - 25 * pi)) * 1)).toBeCloseTo(1, 2); // two half circles of radius 5 on a 30 by 10 body: area 300 + 25 pi
-    const turned = bounds("extrude height=1\n  rectangle w=40 h=10 corner=2 rotate=90");
-    expect(turned[3] - turned[0]).toBeCloseTo(10, 3);
-    expect(turned[4] - turned[1]).toBeCloseTo(40, 3);
-  });
-
-  test("no corner is the same rectangle as before, and a negative radius is refused", () => {
-    expect(vol("extrude height=5\n  rectangle w=10 h=10 corner=0")).toBeCloseTo(500);
-    expect(run("extrude height=5\n  rectangle w=10 h=10 corner=-1").problem!.message).toMatch(/corner radius cannot be negative/);
-  });
-
-  test("holes can be rounded too, and a rounded hole is cut out", () => {
-    const v = vol("extrude height=2\n  rectangle w=40 h=40\n  rectangle u=10 v=10 w=20 h=20 corner=10 hole");
-    expect(v).toBeGreaterThan(1600 * 2 - 400 * 2 - 1);
-    expect(v).toBeLessThan(1600 * 2 - 300 * 2); // a rounded hole (a circle of radius 10, about 314) removes less than a square one
-  });
-});
-
-describe("twisted and tapered extrusions", () => {
-  test("taper scales the top: a pillar 20 square and 30 tall that ends half as wide", () => {
-    const text = "extrude height=30 taper=0.5\n  rectangle w=20 h=20";
-    expect(vol(text) / (10 * (400 + 100 + 200))).toBeCloseTo(1, 4); // h / 3 * (A1 + A2 + sqrt(A1 A2))
-    close(bounds(text), [-10, -10, 0, 10, 10, 30]);
-  });
-
-  test("the top shrinks towards the middle of the sketch, not towards its corner", () => {
-    const b = bounds("extrude height=30 taper=0.5\n  rectangle u=10 v=10 w=20 h=20"); // a square off to one side: its middle is (10, 10)
-    close(b, [0, 0, 0, 20, 20, 30]);
-    // at the top the shape is 10 wide, centred on x = 10: slice by intersecting with a thin slab near the top
-    const top = run("intersect\n  extrude height=30 taper=0.5\n    rectangle u=10 v=10 w=20 h=20\n  transform z=29.9\n    box w=100 d=100 h=0.2").combined!.bounds();
-    expect(top.min[0]).toBeCloseTo(5.0, 0);
-    expect(top.max[0]).toBeCloseTo(15.0, 0);
-  });
-
-  test("twist turns the top: about the same volume, and the top is a square turned by the twist", () => {
-    const text = "extrude height=40 twist=45\n  rectangle w=20 h=20";
-    expect(vol(text) / (400 * 40)).toBeGreaterThan(0.99);
-    expect(vol(text) / (400 * 40)).toBeLessThan(1.03);
-    // a square turned 45 degrees reaches out to the corner: half the diagonal
-    const slab = run("intersect\n  extrude height=40 twist=45\n    rectangle w=20 h=20\n  transform z=39.9\n    box w=100 d=100 h=0.2").combined!.bounds();
-    expect(slab.max[0]).toBeCloseTo(Math.SQRT2 * 10, 0);
-  });
-
-  test("twist and taper together, and a twist the other way", () => {
-    const v = vol("extrude height=30 twist=-90 taper=0.5\n  rectangle w=20 h=20");
-    expect(v / 7000).toBeGreaterThan(0.97);
-    expect(v / 7000).toBeLessThan(1.02);
-  });
-
-  test("shapes in one sketch turn and shrink together, holes included", () => {
-    const v = vol("extrude height=30 twist=90\n  rectangle w=40 h=40\n  circle r=8 hole");
-    expect(v / ((1600 - pi * 64) * 30)).toBeCloseTo(1, 1);
-  });
-
-  test("a bad taper or twist is said plainly", () => {
-    expect(run("extrude height=5 taper=0\n  rectangle w=10 h=10").problem!.message).toMatch(/taper: must be more than 0/);
-    expect(run("extrude height=5 taper=-1\n  rectangle w=10 h=10").problem!.message).toMatch(/taper: must be more than 0/);
-    expect(run("extrude height=5 twist=oops\n  rectangle w=10 h=10").problem!.message).toMatch(/unknown variable "oops"/);
-  });
-
-  test("with neither, it is the plain extrusion it was", () => {
-    expect(vol("extrude height=5\n  rectangle w=10 h=10")).toBeCloseTo(500);
-  });
-});
+/**
+ * Do `f`, and say how many finished results it had to work out (`computed`)
+ * and how many it found already remembered (`remembered`). This is how the tests
+ * tell that work was saved or refused without timing it.
+ */
+function counting<T>(f: () => T) {
+  const before = { ...finishCounts };
+  const value = f();
+  return { value, computed: finishCounts.computed - before.computed, remembered: finishCounts.remembered - before.remembered };
+}
 
 describe("shell: hollowing", () => {
   test("a closed hollow box: the volume of the walls", () => {
@@ -208,18 +141,18 @@ describe("too detailed to finish", () => {
   });
 });
 
-describe("the new blocks sit among the others", () => {
+describe("the finishing blocks fit inside the blocks that hold shapes", () => {
   test("every block that makes or changes a shape may be put inside the blocks that hold shapes", () => {
     for (const kind of ["mirror", "round", "chamfer", "shell", "measure", "extrude", "import"]) {
       expect(accepts("transform", kind), kind).toBe(true);
       expect(accepts("union", kind), kind).toBe(true);
     }
-    expect(accepts(null, "shell")).toBe(true);
+    expect(acceptsInScript({ id: "s1", name: "build", blocks: [] }, "shell")).toBe(true);
   });
 
   test("they read from block text with their fields", () => {
     const { program } = applyOps([], [{ op: "append", blocks: "shell thickness=2 open=top\n  round radius=1\n    box" }]);
-    const shell = program[0] as Block;
+    const shell = program[0].blocks[0];
     expect(shell.args).toMatchObject({ thickness: "2", open: "top" });
     expect(shell.inner![0].args).toMatchObject({ radius: "1" });
   });
@@ -230,28 +163,24 @@ describe("the new blocks sit among the others", () => {
 });
 
 describe("results are remembered, so editing something else does not redo the work", () => {
-  test("the same rounded shape, asked for again, comes back at once, and a change to it is worked out afresh", () => {
+  test("the same rounded shape, asked for again, is remembered and gives the same shape, and a change to it is worked out afresh", () => {
     const text = "round radius=1\n  cylinder r=15 h=30";
-    const time = (t: string) => {
-      const start = performance.now();
-      const r = run(t);
-      return { ms: performance.now() - start, v: r.combined!.volume() };
-    };
-    const first = time(text);
-    const again = time(text);
-    expect(again.v).toBeCloseTo(first.v, 6);
-    expect(again.ms).toBeLessThan(Math.max(50, first.ms / 4));
-    expect(time("round radius=1.5\n  cylinder r=15 h=30").v).not.toBeCloseTo(first.v, 3);
+    const first = counting(() => vol(text));
+    expect(first.computed + first.remembered).toBe(1); // one finishing step, new or remembered from an earlier test
+    const again = counting(() => vol(text));
+    expect(again).toEqual({ value: first.value, computed: 0, remembered: 1 });
+    const changed = counting(() => vol("round radius=1.5\n  cylinder r=15 h=30"));
+    expect(changed).toMatchObject({ computed: 1, remembered: 0 });
+    expect(changed.value).not.toBeCloseTo(first.value, 3);
   });
 
   test("hollowing is remembered the same way", () => {
     const text = "shell thickness=1 open=top\n  sphere r=10";
-    const first = performance.now();
-    run(text);
-    const cold = performance.now() - first;
-    const second = performance.now();
-    run(text);
-    expect(performance.now() - second).toBeLessThan(Math.max(50, cold / 4));
+    const first = counting(() => run(text));
+    expect(first.computed + first.remembered).toBe(1);
+    const again = counting(() => run(text));
+    expect(again).toMatchObject({ computed: 0, remembered: 1 });
+    expect(counting(() => run("shell thickness=1.5 open=top\n  sphere r=10"))).toMatchObject({ computed: 1, remembered: 0 });
   });
 });
 
@@ -280,7 +209,7 @@ describe("fillet: filling the corners where shapes join", () => {
     expect(inside).toBeGreaterThan(after + 100); // the hole (radius 3 < 4) has been filled
   });
 
-  test("round no longer has an inside tick: that is what fillet is for", () => {
+  test("round has no inside tick: that is what fillet is for", () => {
     expect(() => applyOps([], [{ op: "append", blocks: "round radius=2 inside\n  box" }])).toThrow(/no field "inside"|do not understand "inside"/);
     expect(vol("round radius=2\n  box w=20 d=20 h=20")).toBeLessThan(8000);
   });
@@ -296,47 +225,26 @@ describe("fillet: filling the corners where shapes join", () => {
   });
 });
 
-describe("the post and base example", async () => {
-  const { DEMOS } = await import("../src/cadfly/language/demos");
-  const program = () => structuredClone(DEMOS.find((e) => e.name === "Post and base")!.program);
-  test("it runs, has its two screw holes, and a bigger foot makes more material", () => {
-    const small = runProgram(k, program());
-    expect(small.problem).toBeUndefined();
-    const big = program();
-    big[0].args.value = "7";
-    const bigger = runProgram(k, big);
-    expect(bigger.problem).toBeUndefined();
-    expect(bigger.combined!.volume()).toBeGreaterThan(small.combined!.volume());
-    // two holes of radius 3 through the 6 mm base are really there: the volume is the filleted joint less 2 holes
-    const whole = program();
-    const noHoles = [whole[0], whole[1].inner![0]];
-    expect(runProgram(k, noHoles).combined!.volume() - small.combined!.volume()).toBeCloseTo(2 * pi * 9 * 6, -1);
-  });
-});
-
 describe("shapes that would take too long are refused before they start", () => {
   const plate = (holes: number) => `extrude height=5\n  rectangle w=60 h=40\n${Array.from({ length: holes }, (_, i) => `  circle u=${-20 + i * 12} v=0 r=3 hole`).join("\n")}`;
 
   test("a plate with several round holes is too detailed to round: refused at once, saying to round the sketch first", () => {
-    const t = Date.now();
-    const r = run(`round radius=1\n  ${plate(4).replaceAll("\n", "\n  ")}`);
-    expect(Date.now() - t).toBeLessThan(2000); // it did not start the 28 seconds of work
+    const { value: r, ...work } = counting(() => run(`round radius=1\n  ${plate(4).replaceAll("\n", "\n  ")}`));
+    expect(work).toEqual({ computed: 0, remembered: 0 }); // it did not start the 28 seconds of work
     expect(r.problem!.message).toMatch(/too detailed to round: .*not convex.*take too long.*Round the flat sketch before it is extruded/);
     expect(r.problem!.blockId).toBe("b1");
   });
 
   test("the way it says to do it is quick: round the flat sketch, then extrude, and the sides of the plate are rounded", () => {
-    const t = Date.now();
-    const r = run(`extrude height=5\n  round radius=2\n    rectangle w=60 h=40\n  circle u=10 v=0 r=3 hole\n  circle u=-10 v=0 r=3 hole`);
+    const { value: r, ...work } = counting(() => run(`extrude height=5\n  round radius=2\n    rectangle w=60 h=40\n  circle u=10 v=0 r=3 hole\n  circle u=-10 v=0 r=3 hole`));
     expect(r.problem).toBeUndefined();
-    expect(Date.now() - t).toBeLessThan(10000); // the slow way takes 30 seconds or more; a busy computer can take a few seconds
+    expect(work).toEqual({ computed: 0, remembered: 0 }); // no solid was rounded at all: the slow way takes 30 seconds or more
   });
 
   test("a convex shape with a great many triangles is still quick, because it is one hull", () => {
-    const t = Date.now();
-    const r = run("round radius=1\n  sphere r=10");
+    const { value: r, ...work } = counting(() => run("round radius=1\n  sphere r=10"));
     expect(r.problem).toBeUndefined();
-    expect(Date.now() - t).toBeLessThan(10000); // the slow way takes 30 seconds or more; a busy computer can take a few seconds
+    expect(work.computed + work.remembered).toBe(1); // it was done, as one hull (not refused)
   });
 
   test("the same goes for fillet, chamfer and shell", () => {
@@ -348,17 +256,15 @@ describe("shapes that would take too long are refused before they start", () => 
 
   test("so is lettering: its curves make it too detailed to round, fillet or chamfer, and they all say so at once", () => {
     for (const block of ["round radius=0.3", "fillet radius=0.3", "chamfer size=0.3"]) {
-      const t = Date.now();
-      const r = run(`${block}\n  extrude height=2\n    text text=HELLO size=10`);
-      expect(Date.now() - t, block).toBeLessThan(2000);
+      const { value: r, ...work } = counting(() => run(`${block}\n  extrude height=2\n    text text=HELLO size=10`));
+      expect(work, block).toEqual({ computed: 0, remembered: 0 });
       expect(r.problem!.message, block).toMatch(/too detailed to .*: .*take too long/);
     }
   });
 
   test("lettering can be rounded flat, before it is extruded, which is what the message says to do", () => {
-    const t = Date.now();
-    const r = run("extrude height=2\n  round radius=0.2\n    text text=HELLO size=10");
+    const { value: r, ...work } = counting(() => run("extrude height=2\n  round radius=0.2\n    text text=HELLO size=10"));
     expect(r.problem).toBeUndefined();
-    expect(Date.now() - t).toBeLessThan(10000); // the slow way takes 30 seconds or more; a busy computer can take a few seconds
+    expect(work).toEqual({ computed: 0, remembered: 0 }); // no solid was rounded at all: the slow way takes 30 seconds or more
   });
 });

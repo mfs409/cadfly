@@ -1,4 +1,8 @@
-import type { ChatBackend, GenerateRequest } from "../src/cadfly/assistant/backend";
+import type { ChatBackend, GenerateRequest } from "../../src/cadfly/assistant/backend";
+
+/**
+ * A stand-in model: it answers from a list and keeps the requests it was sent.
+ */
 
 /** A backend that answers from a list, for tests. Each answer is the text, or a function of the request. */
 export class ScriptedBackend implements ChatBackend {
