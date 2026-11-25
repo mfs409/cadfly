@@ -8,6 +8,7 @@ Build 3D geometry using intuitive drag-and-drop logic blocks, or by describing y
 ## Key Features
 
 - **Visual Block Programming:** Construct 3D models using visual blocks for primitives (cubes, spheres, cylinders, etc.), sketches, boolean operations (union, difference, intersection), transformations (scale, translate, rotate, etc.), and loops/variables
+- **Math Is Not Blocks:** Any number field in a block is a text box that takes a formula, such as `3 + 5`, `width / 2`, or `r * cos(angle)`, using your variables. There are no blocks for arithmetic or trigonometry, so a design with a lot of math stays short and readable, and the blocks only describe what to build
 - **Scripts:** Write your own reusable scripts with inputs, and use them again and again. A project's `build` script makes the shapes, and other scripts, with their own variables, help it
 - **Four Modes:** First steps, Starter, Builder, and Everything offer more and more blocks, so a beginner sees a few and an experienced person sees all of them. A link can lock a mode
 - **Examples:** A gallery of built-in examples, from a step stool to joints that print in place. Each can replace your project, or be added to it (its scripts come along)
