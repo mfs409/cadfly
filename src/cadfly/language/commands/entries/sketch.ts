@@ -233,7 +233,7 @@ export const sketchEntries: readonly CommandEntry[] = [
    */
   {
     id: "revolve",
-    hint: "spins the flat shapes inside (they need u >= 0) around the plane's v axis (on XZ that is the z axis)",
+    hint: "spins the flat shapes inside (they need u >= 0) around the plane's v axis (on XZ that is the z axis); a rectangle w wide that starts at the axis has u = w/2",
     short: "spins the flat shapes inside (u >= 0) around the plane's v axis",
     word: "revolve",
     category: "sketch",

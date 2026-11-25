@@ -1,6 +1,7 @@
 import Ajv from "ajv";
 import { beforeAll, describe, expect, test } from "vitest";
 import { ScriptedBackend } from "./helpers/scripted";
+import { GEMINI_BUDGET } from "../src/cadfly/assistant/gemini";
 import { WORKED_EXAMPLES } from "../src/cadfly/assistant/workedExamples";
 import { applyOps } from "../src/cadfly/assistant/ops";
 import { DEFAULT_BUDGET, buildMessages, estimateTokens, programView, systemPrompt } from "../src/cadfly/assistant/prompt";
@@ -41,6 +42,20 @@ describe("the instructions", () => {
   test("it says how to reply, and what the ops are", () => {
     expect(text).toContain('"ops"');
     for (const op of ["append", "insert_after", "insert_into", "set", "wrap", "unwrap", "delete", "clear"]) expect(text, op).toContain(`{"op":"${op}"`);
+  });
+
+  test("a vague request is to be answered with no change and a question, not a guess", () => {
+    expect(text).toContain("vague");
+    expect(text).toMatch(/"ops":\[\] and ask/);
+    expect(text).toMatch(/round, chamfer, fillet and shell can fail on a shape with holes or dents/);
+    expect(systemPrompt({ compact: true })).toMatch(/"ops":\[\] and ask/); // a small window needs it as much
+  });
+
+  test("a script used in several places is told to take the position as an input, since use cannot move anything", () => {
+    expect(text).toMatch(/A use block cannot move anything/);
+    expect(text).toMatch(/needs an input for each thing that differs, its position included/);
+    const example = WORKED_EXAMPLES.find((e) => e.user.startsWith("three posts"))!;
+    expect(example.ops[0]).toMatchObject({ op: "script", inputs: "h, x" });
   });
 
   test("the instructions leave room in a 4096-token window", () => {
@@ -114,7 +129,7 @@ describe("fitting a request into the window", () => {
     oneScript(Array.from({ length: n }, (_, i) => blk(`b${i + 1}`, "box", { name: `shape number ${i + 1}`, w: "10", d: "20", h: "30" })));
 
   test("a short program gets the instructions, all the examples, and the request last", () => {
-    const built = buildMessages({ program: oneScript([blk("b1", "box", { name: "a" })]), history: [] }, "make it taller", { context: 7500, reply: 700 });
+    const built = buildMessages({ program: oneScript([blk("b1", "box", { name: "a" })]), history: [] }, "make it taller", GEMINI_BUDGET);
     const m = built.messages;
     expect(m[0].role).toBe("system");
     expect(m.at(-1)!.role).toBe("user");
@@ -122,7 +137,7 @@ describe("fitting a request into the window", () => {
     expect(m.at(-1)!.content).toContain("b1 box");
     expect(built.trimmed).toEqual({ examples: 0, turns: 0, terseBlocks: 0 });
     expect(m).toHaveLength(1 + 2 * WORKED_EXAMPLES.length + 1);
-    expect(built.tokens).toBeLessThanOrEqual(7500 - 700);
+    expect(built.tokens).toBeLessThanOrEqual(GEMINI_BUDGET.context - GEMINI_BUDGET.reply);
   });
 
   test("in a 4096-token window several of the examples still fit", () => {
@@ -156,11 +171,11 @@ describe("fitting a request into the window", () => {
     const roomy = buildMessages({ program: long(10), history }, "now");
     expect(roomy.messages.some((m) => m.content === "second thing")).toBe(true);
     expect(roomy.messages.some((m) => m.content === "first thing")).toBe(false); // only the last two exchanges
-    const tight = buildMessages({ program: long(10), history }, "now", { context: 2800, reply: 300 });
+    const tight = buildMessages({ program: long(10), history }, "now", { context: 3000, reply: 300 });
     expect(tight.trimmed.examples).toBeGreaterThan(0);
     expect(tight.messages.at(-1)!.content).toContain("Request: now");
     expect(tight.messages.at(-1)!.content).toContain("b10 box");
-    expect(tight.tokens).toBeLessThanOrEqual(2500);
+    expect(tight.tokens).toBeLessThanOrEqual(2700);
   });
 
   test("a problem in the program is told to the model", () => {

@@ -106,10 +106,16 @@ export function systemPrompt(options: { compact?: boolean; mode?: ModeSpec } = {
   return [
     `You change a program made of blocks that builds 3D shapes. Answer with JSON only: {"ops":[...],"reply":"..."}.`,
     `"reply" is one short sentence saying what you did, in the language the user writes in. If nothing should change, use "ops":[].`,
+    `If a request is vague or means nothing for the shapes ("make it look nice"), change nothing: use "ops":[] and ask one short question in "reply". round, chamfer, fillet and shell can fail on a shape with holes or dents, so use them on one only when asked.`,
     "",
     "How programs work:",
     `- Blocks run from top to bottom. Every value is text; a number may use variables, + - * / % ( ), comparisons (== != < <= > >=), and/or/not, and sqrt sin cos tan (degrees) abs floor ceil round min max, like "width/4". Sizes are in millimetres.`,
-    ...(scripts && !options.compact ? [`- build is the script that runs by itself. Other scripts run only where a use block names them, and see just their inputs, their own variables and the globals (set blocks kept in scripts of their own).`] : []),
+    ...(scripts && !options.compact
+      ? [
+          `- build is the script that runs by itself. Other scripts run only where a use block names them, and see just their inputs, their own variables and the globals (set blocks kept in scripts of their own).`,
+          `- A use block cannot move anything: it only gives values to a script's inputs. A script used in several places needs an input for each thing that differs, its position included: inputs "h, x" and box h=h x=x, then use values="10, 0".`,
+        ]
+      : []),
     `- A program is a tree. These blocks hold shapes and act on the ones inside them, which are merged: ${offered.filter((c) => c.buildsInner).map((c) => c.id).join(", ")}. The shapes at the top are shown together.`,
     "- A new shape sits on the ground, centred on the origin (x right, y away, z up). box, cylinder, sphere and import take x y z: where the bottom centre goes (z is how high). A flat shape (rectangle, circle, text) is centred at its u,v. transform (move x y z, turn rx ry rz in degrees, scale sx sy sz) HOLDS what it changes, indented under it.",
     "- rectangle, circle, polygon and text make flat shapes; flat shapes can be combined, moved and turned like solids (a piece with hole on is cut out of the pieces beside it, or use subtract). extrude, revolve, loft and sweep hold flat shapes and make solids from them.",

@@ -226,6 +226,23 @@ export const WORKED_EXAMPLES: WorkedExample[] = [
     reply: "Made a table: a leg script, used four times under the top.",
   },
   {
+    // a use only gives values to inputs, so the position is an input too
+    program: [],
+    user: "three posts, 4 by 4, with heights 10, 20 and 30, 15 apart along x",
+    ops: [
+      { op: "script", name: "post", inputs: "h, x", blocks: "box name=post w=4 d=4 h=h x=x" },
+      append(['union name=posts', '  use name=post values="10, 0"', '  use name=post values="20, 15"', '  use name=post values="30, 30"'].join("\n")),
+    ],
+    reply: "Made a post script with a height and a position, used three times.",
+  },
+  {
+    // nothing here says what 'nice' means, so nothing changes and the person is asked
+    program: plate(),
+    user: "make it look nice",
+    ops: [],
+    reply: "What would you like: rounded corners, a different size, or more holes?",
+  },
+  {
     program: [],
     user: "a row of 6 posts 10 apart, every other one taller",
     ops: [
