@@ -30,7 +30,7 @@ Outside `src/`:
 - `npm start` serves the app and rebuilds as you edit.
 - `npm run build` builds the app into `dist/cadfly`.
 - `npm run check` type-checks the app, and `npm run check:tests` type-checks everything, including tests and eval.
-- `npm test` runs the whole suite, which takes two to three minutes. While working, run one file: `npx vitest run tests/edit.test.ts`.
+- `npm test` runs the whole suite, which takes about half a minute on a machine with several cores. While working, run one file: `npx vitest run tests/edit.test.ts`.
 - `npm run coverage` runs the suite with a coverage report and refreshes the tests badge.
 - `npm run eval -- <model>` and `npm run report` are the evaluation. They need a model, and are not part of `npm test`.
 

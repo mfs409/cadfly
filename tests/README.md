@@ -21,10 +21,10 @@ That includes dragging and tapping in the editor, the 3D view, how the pages loo
 Note that the tests are written by Claude, and only lightly reviewed.
 They appear sufficient to ensure that future changes don't accidentally break current behaviors.
 They are not a proof that the behaviors are the right ones.
-At the last run, the suite exercised about two thirds of the lines in `src/cadfly`, and nearly all of the rest is browser-only code.
+At the last run, the suite exercised about 70 percent of the lines in `src/cadfly`, and nearly all of the rest is browser-only code.
 
 Also note that the tests use the real manifold kernel (WebAssembly) for anything that builds a shape, and never mock geometry.
-That is why the whole suite takes two to three minutes.
+That is why the whole suite takes about half a minute on a machine with several cores, and longer on one with fewer.
 Each test file starts with a comment saying what it checks.
 
 ## Running

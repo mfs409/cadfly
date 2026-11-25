@@ -56,7 +56,7 @@ npm install        # get the dependencies
 npm start          # serve the app, and rebuild as you edit
 npm run build      # build the app into dist/cadfly
 npm run check      # type-check the app
-npm test           # run the tests (two to three minutes)
+npm test           # run the tests (about half a minute)
 ```
 
 `npm run check:tests` type-checks the tests and the evaluation as well, and `npm run coverage` runs the tests with a coverage report.
