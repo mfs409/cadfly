@@ -4,7 +4,7 @@ import type { Kernel } from "../src/cadfly/geometry/kernel";
 import { createManifoldKernel } from "../src/cadfly/geometry/manifold";
 import { dropBlocks, takeOutOfHolder } from "../src/cadfly/language/edit";
 import { validateProgram } from "../src/cadfly/language/format";
-import { accepts, blocksToWrap, findBlock, pointListOf, pointLists } from "../src/cadfly/language/program";
+import { accepts, blocksToWrap, canHold, canHoldInScript, findBlock, pointListOf, pointLists } from "../src/cadfly/language/program";
 import { runProgram } from "../src/cadfly/language/run";
 import type { Block } from "../src/cadfly/language/types";
 import { acceptingPoints, layoutProgram } from "../src/cadfly/ui/layout";
@@ -305,7 +305,7 @@ describe("dropping, wrapping and taking out blocks in a list of points", () => {
   test("the drop points inside a repeat of points take points, repeats and sets, and not shapes", () => {
     const withRepeat = oneScript([slab(blk("p", "polygon", {}, [rep("r", "3", [pt("a", "0", "0")])]))]);
     const layout = layoutProgram(withRepeat, { x: 1, y: 2, width: 8, measure: (t) => t.length * 0.1 });
-    const holders = (kinds: string[]) => new Set(acceptingPoints(layout, withRepeat, kinds).map((d) => ("parentId" in d ? d.parentId : d.scriptId)));
+    const holders = (kinds: string[]) => new Set(acceptingPoints(layout, withRepeat, kinds.map((k, i) => blk(`k${i}`, k))).map((d) => ("parentId" in d ? d.parentId : d.scriptId)));
     expect(holders(["point"])).toEqual(new Set(["p", "r"]));
     expect(holders(["repeat"])).toContain("r");
     expect(holders(["box"])).not.toContain("r");
@@ -351,5 +351,76 @@ describe("how blocks in a list of points are shown and described", () => {
     expect(lineFor("vertices")).toMatch(/Holds vertex; repeat\/if\/set make them/);
     // a sweep already says it holds vertex points, and repeats and ifs of the shape it carries
     expect(lineFor("sweep")).toMatch(/Holds flat shapes and vertex points/);
+  });
+});
+
+describe("whether blocks, and what is inside them, fit a place", () => {
+  /** A `build` script, which takes any block that is not a piece of another. */
+  const script = oneScript([])[0];
+  /** A repeat that makes shapes. */
+  const ofShapes = rep("r1", "2", [blk("b1", "box", {})]);
+  /** A repeat that makes points. */
+  const ofPoints = rep("r2", "2", [pt("p1", "0", "0")]);
+  /** A repeat with nothing in it yet, which can be either. */
+  const empty = rep("r3", "2", []);
+
+  test("a repeat of points fits among points and nowhere else", () => {
+    expect(canHold([ofPoints], "polygon", "polygon")).toBe(true);
+    expect(canHold([ofPoints], "union", null)).toBe(false);
+    expect(canHoldInScript([ofPoints], script)).toBe(false);
+  });
+
+  test("a repeat of shapes fits among shapes and not among points", () => {
+    expect(canHold([ofShapes], "union", null)).toBe(true);
+    expect(canHoldInScript([ofShapes], script)).toBe(true);
+    expect(canHold([ofShapes], "polygon", "polygon")).toBe(false);
+    expect(canHold([ofShapes], "vertices", "vertices")).toBe(false);
+  });
+
+  test("a repeat with nothing in it fits wherever a repeat does, since the place decides what it holds", () => {
+    expect(canHold([empty], "polygon", "polygon")).toBe(true);
+    expect(canHold([empty], "union", null)).toBe(true);
+    expect(canHoldInScript([empty], script)).toBe(true);
+  });
+
+  test("what is deeper counts: a repeat inside a repeat, and an if with an else", () => {
+    const nested = rep("r4", "2", [rep("r5", "3", [vx("v1", "0", "0", "0")])]);
+    expect(canHold([nested], "vertices", "vertices")).toBe(true);
+    expect(canHold([nested], "union", null)).toBe(false);
+    const branches = blk("i1", "if", { condition: "true" }, [pt("p2", "0", "0"), blk("e1", "else", {}, [pt("p3", "1", "1")])]);
+    expect(canHold([branches], "polygon", "polygon")).toBe(true);
+    expect(canHoldInScript([branches], script)).toBe(false);
+    const mixed = rep("r6", "2", [blk("b2", "box", {}), pt("p4", "0", "0")]);
+    expect(canHold([mixed], "polygon", "polygon")).toBe(false);
+    expect(canHold([mixed], "union", null)).toBe(false);
+  });
+
+  test("a plain block fits the places its kind fits", () => {
+    expect(canHold([pt("p5", "0", "0")], "polygon", "polygon")).toBe(true);
+    expect(canHold([pt("p5", "0", "0")], "union", null)).toBe(false);
+    expect(canHold([blk("b3", "box", {})], "polygon", "polygon")).toBe(false);
+    expect(canHoldInScript([blk("b3", "box", {})], script)).toBe(true);
+  });
+
+  test("the drop points offered for a repeat follow what it holds", () => {
+    const program = oneScript([slab(blk("p", "polygon", {}, [pt("a", "0", "0")])), blk("u", "union", {}, [blk("b9", "box", {})])]);
+    const layout = layoutProgram(program, { x: 1, y: 2, width: 8, measure: (t) => t.length * 0.1 });
+    /** The holders that would take these blocks, by id, and the scripts. */
+    const places = (carried: Block[]) => new Set(acceptingPoints(layout, program, carried).map((d) => ("parentId" in d ? d.parentId : d.scriptId)));
+    expect(places([ofPoints]).has("p")).toBe(true);
+    expect(places([ofPoints]).has("u")).toBe(false);
+    expect(places([ofPoints]).has("s1")).toBe(false);
+    expect(places([ofShapes]).has("p")).toBe(false);
+    expect(places([ofShapes]).has("u")).toBe(true);
+    expect(places([ofShapes]).has("s1")).toBe(true);
+    expect(places([empty]).has("p")).toBe(true);
+    expect(places([empty]).has("u")).toBe(true);
+  });
+
+  test("a repeat is wrapped around the blocks after it only if they belong inside it", () => {
+    const program = oneScript([slab(blk("p", "polygon", {}, [pt("a", "0", "0"), pt("b", "1", "0")]))]);
+    expect(blocksToWrap(program, { parentId: "p", index: 0 }, [rep("w", "2", [])]).map((b) => b.id)).toEqual(["a", "b"]);
+    const shapes = oneScript([blk("u", "union", {}, [blk("b9", "box", {})])]);
+    expect(blocksToWrap(shapes, { parentId: "u", index: 0 }, [rep("w", "2", [])]).map((b) => b.id)).toEqual(["b9"]);
   });
 });

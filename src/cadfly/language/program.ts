@@ -118,7 +118,7 @@ export function blocksToWrap(program: Program, point: InsertPoint, blocks: Block
   const holdable = following.every((b) => {
     const def = commandById(b.kind);
     const isPoint = within !== null && b.kind === POINT_HOLDERS[within];
-    return !def?.automatic && (!def?.piece || isPoint) && accepts(holder.kind, b.kind, inside);
+    return !def?.automatic && (!def?.piece || isPoint) && canHold([b], holder.kind, inside);
   });
   return holdable ? following : [];
 }
@@ -203,6 +203,38 @@ export function accepts(parentKind: string, kind: string, list: string | null = 
     if (list !== "sweep") return false;
   }
   return commandById(parentKind)?.inner?.includes(kind) ?? false;
+}
+
+/**
+ * Can these blocks, with everything inside them, be put in the list of blocks
+ * inside a block of kind `parentKind`? Each block has to be one that the parent
+ * takes (`accepts`), and so does everything inside it, in the place it would
+ * then be: a `repeat` of points is fine in the list of a polygon and nowhere
+ * else, and a `repeat` of shapes is fine anywhere but there. A holder with
+ * nothing in it yet is fine in either, since where it goes decides what it
+ * holds. This is the rule that a file has to satisfy when it is opened, so a
+ * place that this approves can never make a file that cannot be opened.
+ *
+ * @param blocks The blocks to put there, with the blocks inside them.
+ * @param parentKind The kind of the block that would hold them.
+ * @param list The point holder whose list the blocks inside the parent are, or
+ *             null if it is not a list of points (see `pointListOf`).
+ */
+export function canHold(blocks: Block[], parentKind: string, list: string | null): boolean {
+  return blocks.every((b) => accepts(parentKind, b.kind, list) && canHold(b.inner ?? [], b.kind, pointListOf(b.kind, list)));
+}
+
+/**
+ * Can these blocks, with everything inside them, be put directly in this
+ * script's list of blocks? Each has to be one that the script takes
+ * (`acceptsInScript`), and everything inside it has to belong where it is
+ * (see `canHold`). A `repeat` of points has no place in a script, for example.
+ *
+ * @param blocks The blocks to put there, with the blocks inside them.
+ * @param script The script.
+ */
+export function canHoldInScript(blocks: Block[], script: Script): boolean {
+  return blocks.every((b) => acceptsInScript(script, b.kind) && canHold(b.inner ?? [], b.kind, pointListOf(b.kind, null)));
 }
 
 /**

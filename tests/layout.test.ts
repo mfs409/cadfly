@@ -8,6 +8,9 @@ import { addScript, setScriptFold, takeBlock } from "../src/cadfly/language/edit
 import { UI_MODES, modeByName } from "../src/cadfly/ui/modes";
 import { blk, box, set, ids, columns, three } from "./helpers/blocks";
 
+/** Blocks of these kinds with nothing inside them, for asking where blocks like them would drop. */
+const ofKinds = (kinds: string[]): Block[] => kinds.map((k, i) => blk(`k${i}`, k));
+
 /**
  * How blocks and scripts are laid out and hit-tested, where blocks would drop,
  * and the rounded outlines of blocks.
@@ -210,23 +213,23 @@ describe("where a dragged script may go", () => {
 
   test("a solid goes at the top level only; a flat shape goes there or into an extrude", () => {
     const l = lay(p);
-    const top = acceptingPoints(l, oneScript(p), ["box"]);
+    const top = acceptingPoints(l, oneScript(p), ofKinds(["box"]));
     expect(top.every((a) => holderOf(a) === null)).toBe(true);
     expect(top).toHaveLength(4);
-    const piece = acceptingPoints(l, oneScript(p), ["circle"]);
+    const piece = acceptingPoints(l, oneScript(p), ofKinds(["circle"]));
     expect(piece.every((a) => holderOf(a) === null || holderOf(a) === "b1" || holderOf(a) === "b4")).toBe(true);
     expect(piece).toHaveLength(7); // the four places at the top, and before and after the rectangle, and into the empty extrude
   });
 
   test("a script goes where all of its blocks are allowed", () => {
     const l = lay(p);
-    expect(acceptingPoints(l, oneScript(p), ["rectangle", "box"])).toHaveLength(4); // only the top takes a box
-    expect(acceptingPoints(l, oneScript(p), ["rectangle", "circle"])).toHaveLength(7);
+    expect(acceptingPoints(l, oneScript(p), ofKinds(["rectangle", "box"]))).toHaveLength(4); // only the top takes a box
+    expect(acceptingPoints(l, oneScript(p), ofKinds(["rectangle", "circle"]))).toHaveLength(7);
   });
 
   test("the nearest drop point wins, within a range", () => {
     const l = lay(p);
-    const all = acceptingPoints(l, oneScript(p), ["box"]);
+    const all = acceptingPoints(l, oneScript(p), ofKinds(["box"]));
     expect(nearestPoint(all, 1.1, 2.1, 1)).toEqual(all[0]);
     const last = all[all.length - 1];
     expect(nearestPoint(all, last.x + 0.1, last.y - 0.1, 1)).toEqual(last);
@@ -296,8 +299,8 @@ describe("holders of shapes", () => {
 
   test("shapes can be dropped inside a holder, and the parts of a block cannot", () => {
     const l = lay([blk("b1", "transform", {}, [])]);
-    expect(acceptingPoints(l, oneScript([blk("b1", "transform", {}, [])]), ["box", "transform", "set"]).length).toBeGreaterThan(0);
-    expect(acceptingPoints(l, oneScript([blk("b1", "transform", {}, [])]), ["point"]).every((a) => holderOf(a) !== "b1")).toBe(true);
+    expect(acceptingPoints(l, oneScript([blk("b1", "transform", {}, [])]), ofKinds(["box", "transform", "set"])).length).toBeGreaterThan(0);
+    expect(acceptingPoints(l, oneScript([blk("b1", "transform", {}, [])]), ofKinds(["point"])).every((a) => holderOf(a) !== "b1")).toBe(true);
   });
 });
 
@@ -494,7 +497,7 @@ describe("the layout of scripts", () => {
   test("a global script takes only set blocks, and build and functions take any block that is not a part of another", () => {
     const p: Program = [{ id: "g1", blocks: [set("g")] }, ...three()];
     const l = lay(p);
-    const scriptsFor = (kinds: string[]) => [...new Set(acceptingPoints(l, p, kinds).flatMap((a) => ("scriptId" in a ? [a.scriptId] : [])))];
+    const scriptsFor = (kinds: string[]) => [...new Set(acceptingPoints(l, p, ofKinds(kinds)).flatMap((a) => ("scriptId" in a ? [a.scriptId] : [])))];
     expect(scriptsFor(["box"])).toEqual(["s1", "s2", "s3"]); // not the global script, g1
     expect(scriptsFor(["set"])).toEqual(["g1", "s1", "s2", "s3"]);
     expect(scriptsFor(["point"])).toEqual([]);
@@ -542,18 +545,18 @@ describe("asking again which drop points take some blocks (as a drag does at eve
   test("the answer is the same each time for the same program", () => {
     const p = three();
     const l = lay(p);
-    const first = acceptingPoints(l, p, ["box"]);
+    const first = acceptingPoints(l, p, ofKinds(["box"]));
     expect(first.length).toBeGreaterThan(0);
-    for (let i = 0; i < 3; i++) expect(acceptingPoints(l, p, ["box"])).toEqual(first);
+    for (let i = 0; i < 3; i++) expect(acceptingPoints(l, p, ofKinds(["box"]))).toEqual(first);
     // and a different set of kinds is not confused with it: a global script takes only set blocks
-    expect(acceptingPoints(l, [{ id: "s1", blocks: [set("g")] }], ["box"])).toEqual([]);
+    expect(acceptingPoints(l, [{ id: "s1", blocks: [set("g")] }], ofKinds(["box"]))).toEqual([]);
   });
 
   test("another program is worked out afresh, even when its ids are the same", () => {
     const holder = (kind: string): Program => oneScript([blk("h", kind, {}, [])]);
     const withUnion = holder("union");
     const withBox = holder("box"); // a box holds nothing, so nothing can go inside it
-    const inside = (p: Program) => acceptingPoints(lay(p), p, ["box"]).filter((a) => "parentId" in a);
+    const inside = (p: Program) => acceptingPoints(lay(p), p, ofKinds(["box"])).filter((a) => "parentId" in a);
     expect(inside(withUnion)).toHaveLength(1);
     expect(inside(withBox)).toHaveLength(0);
     // asking about the first again still gives its own answer

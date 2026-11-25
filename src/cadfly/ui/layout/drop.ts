@@ -1,4 +1,4 @@
-import { accepts, acceptsInScript, pointLists } from "../../language/program";
+import { canHold, canHoldInScript, pointLists } from "../../language/program";
 import type { Block, Program, Script } from "../../language/types";
 import type { DropPoint, ProgramLayout } from "./types";
 
@@ -43,21 +43,23 @@ function lookupFor(program: Program): Lookup {
 }
 
 /**
- * Which drop points would take blocks of these kinds: the ones where every
- * kind is allowed in the place that the point is in (inside a holder, what that
- * holder may hold; directly in a script, what that script may hold).
+ * Which drop points would take these blocks: the ones where every block, and
+ * everything inside it, is allowed in the place that the point is in (inside a
+ * holder, what that holder may hold; directly in a script, what that script may
+ * hold). What is inside a block counts, because a `repeat` of points may go
+ * among points and a `repeat` of shapes among shapes, and no other way round.
  *
  * @param layout The layout whose points are to be chosen from.
  * @param program The program it is the layout of, to find what each point is
  *                inside.
- * @param kinds The kinds of the blocks being dragged.
+ * @param blocks The blocks being dragged, with the blocks inside them.
  */
-export function acceptingPoints(layout: ProgramLayout, program: Program, kinds: string[]): DropPoint[] {
+export function acceptingPoints(layout: ProgramLayout, program: Program, blocks: Block[]): DropPoint[] {
   const { kinds: parentKind, lists, scripts } = lookupFor(program);
   return layout.dropPoints.filter((a) => {
-    if ("parentId" in a) return kinds.every((k) => accepts(parentKind.get(a.parentId) ?? "", k, lists.get(a.parentId) ?? null));
+    if ("parentId" in a) return canHold(blocks, parentKind.get(a.parentId) ?? "", lists.get(a.parentId) ?? null);
     const script = scripts.get(a.scriptId);
-    return !!script && kinds.every((k) => acceptsInScript(script, k));
+    return !!script && canHoldInScript(blocks, script);
   });
 }
 

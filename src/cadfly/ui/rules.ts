@@ -52,11 +52,7 @@ export interface DropPlan {
 export function dropPlan(layout: ProgramLayout, program: Program, blocks: Block[], corner: Point, pointerInWorkspace: boolean, workOrigin: Point, mode: ModeSpec | undefined, snapDistance: number): DropPlan {
   if (!pointerInWorkspace) return {};
   const snap = nearestPoint(
-    acceptingPoints(
-      layout,
-      program,
-      blocks.map((b) => b.kind),
-    ),
+    acceptingPoints(layout, program, blocks),
     corner.x,
     corner.y,
     snapDistance,
