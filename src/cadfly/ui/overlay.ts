@@ -7,7 +7,9 @@ import { ACCENT, INK, INPUT_BG, LINE, MUTED, PANEL, QUIET_BUTTON, el, showPopup 
  * it has the focus, makes the choice. A card with several choices has a button
  * for each. The overlay closes on a click outside the cards, on Escape, on its
  * Close button, or after a choice is made. It can also have check boxes above
- * the cards, which a choice reads when it is made.
+ * the cards, which a choice reads when it is made. For a moment after it opens
+ * it ignores taps and mouse clicks, so that the click a touch screen sends after
+ * the tap that opened it cannot make a choice.
  */
 
 /** A button on a card */
@@ -156,6 +158,6 @@ export function openCards(title: string, cards: Card[], toggles: Toggle[] = [], 
   backdrop.addEventListener("pointerdown", (e) => {
     if (e.target === backdrop) close();
   });
-  close = showPopup(backdrop, { slot: "cards", keepKeysFromPage: true });
+  close = showPopup(backdrop, { slot: "cards", keepKeysFromPage: true, ignoreEarlyTaps: true });
   return () => close();
 }

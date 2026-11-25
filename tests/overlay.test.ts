@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { EARLY_TAP_MS } from "../src/cadfly/ui/dom";
 import { type Card, openCards } from "../src/cadfly/ui/overlay";
 
 /*
@@ -7,7 +8,8 @@ import { type Card, openCards } from "../src/cadfly/ui/overlay";
  * outside the cards, its Close button, a choice made), what a choice hands on,
  * how a card with one choice is tapped as a whole while a card with several
  * keeps its buttons, that clicks and keys stay away from the page underneath
- * while it is open, and that closing takes away everything it added.
+ * while it is open, that a tap just after it opens makes no choice, and that
+ * closing takes away everything it added.
  */
 
 /** Wait for the timer that arms an overlay's listeners, which is not set until the next turn. */
@@ -391,5 +393,76 @@ describe("a wide overlay", () => {
     openCards("Choose one", cards([]), [], { wide: true });
     const buttons = button("Pick second")!.parentElement!;
     expect(buttons.style.marginTop).toBe("auto");
+  });
+});
+
+describe("taps just after it opens", () => {
+  /** A click made with a mouse or a finger, which has a count of one, as a touch screen sends after a tap. */
+  const tap = (target: Element) => target.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true, cancelable: true }));
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("a tap on a button right after it opens does nothing, and the overlay stays", () => {
+    const log: boolean[][] = [];
+    openCards("Choose one", cards(log));
+    tap(button("Pick first")!);
+    expect(log).toEqual([]);
+    expect(backdrop()).not.toBeNull();
+  });
+
+  test("a tap on the Close button right after it opens does nothing", () => {
+    openCards("Choose one", cards([]));
+    tap(button("Close")!);
+    expect(backdrop()).not.toBeNull();
+  });
+
+  test("a tap on a card that is a button as a whole right after it opens does nothing", () => {
+    const picked = vi.fn();
+    openCards("Choose one", [{ title: "Only", description: "the only choice", pick: picked }]);
+    tap([...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Only"))!);
+    expect(picked).not.toHaveBeenCalled();
+    expect(backdrop()).not.toBeNull();
+  });
+
+  test("once the moment has passed, a tap works", () => {
+    const log: boolean[][] = [];
+    openCards("Choose one", cards(log));
+    vi.advanceTimersByTime(EARLY_TAP_MS);
+    tap(button("Pick first")!);
+    expect(log).toEqual([[]]);
+    expect(backdrop()).toBeNull();
+  });
+
+  test("the moment lasts until its time is up, not a moment less", () => {
+    const log: boolean[][] = [];
+    openCards("Choose one", cards(log));
+    const pick = button("Pick first")!;
+    vi.advanceTimersByTime(EARLY_TAP_MS - 1);
+    tap(pick);
+    expect(log).toEqual([]);
+    vi.advanceTimersByTime(1);
+    tap(pick);
+    expect(log).toEqual([[]]);
+  });
+
+  test("a click made with the keyboard works at once", () => {
+    const log: boolean[][] = [];
+    openCards("Choose one", cards(log));
+    // pressing Enter or Space on a focused button sends a click that has no count
+    button("Pick first")!.click();
+    expect(log).toEqual([[]]);
+    expect(backdrop()).toBeNull();
+  });
+
+  test("a press outside the cards still closes it at once", () => {
+    openCards("Choose one", cards([]));
+    pointerDown(backdrop()!);
+    expect(backdrop()).toBeNull();
   });
 });

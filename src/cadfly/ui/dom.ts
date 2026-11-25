@@ -66,7 +66,21 @@ export interface PopupOptions {
   anyKeyCloses?: boolean;
   /** Are the keys pressed while it is open kept from the rest of the page (default no)? */
   keepKeysFromPage?: boolean;
+  /**
+   * Does it ignore clicks made with a mouse or a finger for a moment after it
+   * opens (default no)? On a touch screen the browser sends a mouse click to
+   * whatever is under the finger some time after the tap that opened the
+   * pop-up, which would press whatever of the pop-up's buttons is there. Clicks
+   * made with the keyboard (Enter or Space) are never ignored.
+   */
+  ignoreEarlyTaps?: boolean;
 }
+
+/**
+ * How long, in milliseconds, a pop-up that ignores early taps does so. Browsers
+ * send the click that follows a tap within about 300 ms of it.
+ */
+export const EARLY_TAP_MS = 350;
 
 /**
  * Put an element on the page as a pop-up that closes itself: on a click outside
@@ -100,6 +114,20 @@ export function showPopup(root: HTMLElement, options: PopupOptions): () => void 
     if (openPopups.get(options.slot) === close) openPopups.delete(options.slot);
   };
   openPopups.set(options.slot, close);
+  if (options.ignoreEarlyTaps) {
+    const openedAt = Date.now();
+    // a click made with a pointer has a count of one or more, and one made with the keyboard has none
+    root.addEventListener(
+      "click",
+      (e) => {
+        if (e.detail > 0 && Date.now() - openedAt < EARLY_TAP_MS) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+        }
+      },
+      true,
+    );
+  }
   // not on the click that opened it (and not at all if it was closed in the meantime)
   setTimeout(() => {
     if (closed) return;
