@@ -198,7 +198,7 @@ export function createToolbar(host: ToolbarHost): () => ToolbarButton[] {
     { group: "edit", label: "↶", color: "#475569", enabled: () => project.canUndo(), action: project.undo },
     { group: "edit", label: "↷", color: "#475569", enabled: () => project.canRedo(), action: project.redo },
     // the middle: how much of the interface to show
-    { group: "mode", label: `${settings.modeName()} ▾`, color: "#0f766e", enabled: () => settings.lockedMode === undefined, action: settings.chooseMode },
+    { group: "mode", label: `Mode: ${settings.modeName()}`, color: "#0f766e", enabled: () => settings.lockedMode === undefined, action: settings.chooseMode },
     { group: "mode", label: settings.assistantOn() ? "AI: on" : "AI: off", color: settings.assistantOn() ? "#0f766e" : "#475569", enabled: () => settings.lockedAssistant === undefined, action: settings.toggleAssistant },
     // the right: the project
     {
