@@ -1,7 +1,9 @@
 import { JetLagGameConfig, initializeAndLaunch, stage } from "jetlag2d";
 import { wantsTestHandle } from "./address";
 import { type AssistantPanel, createAssistantPanel } from "./app/assistantPanel";
+import { watchDrops } from "./app/dropFile";
 import { createEditorHost } from "./app/editorHost";
+import { openProjectFile } from "./app/openProjectFile";
 import { createProject } from "./app/project";
 import { createRunner } from "./app/runner";
 import { createSettings } from "./app/settings";
@@ -90,6 +92,9 @@ function builder() {
   layout();
   const buttons = createToolbar({ project, settings, lastShapes: runner.lastShapes, buildWithHidden: () => engine.run(project.program(), project.files(), "export", true), problem: runner.problem, notify });
   editor = createEditor(createEditorHost({ project, runner, settings, buttons, notify }));
+
+  // a project file dropped anywhere on the page opens as the Load button does
+  watchDrops({ open: (file) => openProjectFile(file, { project, settings, notify }), notify });
 
   // Ctrl+Z and Ctrl+Y, except while typing in a field
   document.addEventListener("keydown", (e) => {

@@ -2,7 +2,7 @@ import { stage } from "jetlag2d";
 import { EXAMPLES, exampleById } from "../examples";
 import { RunStopped } from "../engine";
 import { type ExportChoice, exportFile } from "../exportStl";
-import { PROJECT_EXTENSION, PROJECT_FILE_NAME, isProjectFileName, parseProject, serializeProject } from "../language/format";
+import { PROJECT_EXTENSION, PROJECT_FILE_NAME, serializeProject } from "../language/format";
 import { createEmptyProgram, isBlank } from "../language/program";
 import type { Problem } from "../language/types";
 import type { RunSnapshot } from "../snapshot";
@@ -10,6 +10,7 @@ import { el } from "../ui/dom";
 import type { ToolbarButton } from "../ui/editor";
 import { addExampleToProject, exampleCards } from "../ui/menus";
 import { openCards } from "../ui/overlay";
+import { openProjectFile } from "./openProjectFile";
 import type { Project } from "./project";
 import type { Settings } from "./settings";
 
@@ -77,25 +78,11 @@ export function createToolbar(host: ToolbarHost): () => ToolbarButton[] {
   fileInput.type = "file";
   fileInput.accept = PROJECT_EXTENSION;
   document.body.appendChild(fileInput);
-  // A project file was chosen: read it, check it, and replace the blocks and files with it after
-  // asking if there are unsaved blocks. A file that is not a good project is reported and nothing
-  // changes.
+  // A project file was chosen: open it in place of the project.
   fileInput.onchange = async () => {
     const file = fileInput.files?.[0];
     fileInput.value = ""; // so the same file can be chosen again
-    if (!file) return;
-    if (!isProjectFileName(file.name)) {
-      host.notify(`${file.name}: that is not a ${PROJECT_EXTENSION} file`);
-      return;
-    }
-    try {
-      const loaded = parseProject(await file.text());
-      if (!project.okToReplace(`Load ${file.name}?`)) return;
-      project.replace(loaded.program, loaded.files);
-      settings.noteHiddenBlocks();
-    } catch (e) {
-      host.notify(`${file.name}: ${(e as Error).message}`);
-    }
+    if (file) await openProjectFile(file, host);
   };
 
   // Browsers only open a file chooser from a "click" event, and JetLag acts on the

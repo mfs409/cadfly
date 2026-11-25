@@ -15,7 +15,7 @@ Build 3D geometry using intuitive drag-and-drop logic blocks, or by describing y
 - **Real-Time 3D Rendering:** View instant, interactive 3D model renders
 - **Parametric Control:** Edit block variables and parameters dynamically to modify geometry on the fly
 - **Model Export:** Export your generated 3D models to STL, as one file or as a zip with one file for each part
-- **Project Files:** Save and load projects as `.cadfly` files, or open one from a link
+- **Project Files:** Save and load projects as `.cadfly` files, drag a file onto the page to open it, or open one from a link
 - **AI Chat-to-3D Integration:** Chat with an integrated AI assistant to build and refine models. It can be turned off, and a link can turn it off for a class
 
 ## Tech Stack
