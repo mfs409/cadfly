@@ -79,14 +79,6 @@ export interface CommandDef {
    */
   plain?: boolean;
   /**
-   * What the block shows when it is only *partly* exposed: the
-   * ids of the fields still offered, in the order they are drawn. The others
-   * keep their values (the defaults, for a new block). Leave it out and partial
-   * means every field; an empty list hides them all, which also hides the
-   * caption.
-   */
-  partial?: readonly string[];
-  /**
    * For a block that moves what is inside it (transform, mirror): move the
    * points and faces drawn for the shapes inside the same way (change them in
    * place, or `add` new ones). They are only for looking at, so they are only
@@ -153,6 +145,28 @@ export interface CommandDef {
  * `COLOR_OVERRIDES`.
  */
 export type CommandEntry = Omit<CommandDef, "color">;
+
+/**
+ * May a block of this kind be hidden (the eye)? Only a block that makes a shape
+ * of its own can be: not one that sets a variable, one that only reports on what
+ * is inside it, or a piece of a bigger block.
+ *
+ * @param def The command the block is of.
+ */
+export function canHide(def: CommandDef): boolean {
+  return !!def.make && !def.observer && !def.piece;
+}
+
+/**
+ * May a block of this kind be switched off (the power switch)? Only a block
+ * that changes what is inside it can be: switched off, the shapes inside pass
+ * through as they were.
+ *
+ * @param def The command the block is of.
+ */
+export function canDisable(def: CommandDef): boolean {
+  return def.modifier === true;
+}
 
 /**
  * What a block that works on flat shapes (extrude, revolve, a loft's ends, a

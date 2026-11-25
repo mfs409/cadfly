@@ -136,6 +136,7 @@ export function merged(env: Env, a: BlockArgs, kids: Shape[]): Shape {
   if (solids.length) return solids.reduce((x, y) => k.union(x, y));
   const add = flats.filter((f) => !f.hole);
   const cut = flats.filter((f) => f.hole);
+  /** The union of the flat shapes in a list. */
   const join = (list: typeof flats) => list.map((f) => f.flat).reduce((x, y) => k.flatUnion(x, y));
   if (!add.length) return singlePiece(join(cut), true);
   // the pieces the shapes were put together from are kept (as they were before

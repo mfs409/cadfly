@@ -67,6 +67,10 @@ export const placeEntries: readonly CommandEntry[] = [
       const scale = [a.num("sx"), a.num("sy"), a.num("sz")];
       const turn = [a.num("rx"), a.num("ry"), a.num("rz")];
       const move = [a.num("x"), a.num("y"), a.num("z")];
+      /**
+       * A point of an overlay after the block's scale, turn and move, in that
+       * order: the same way the shapes are placed.
+       */
       const at = (p: Vec3): Vec3 => {
         let q = [p[0] * scale[0], p[1] * scale[1], p[2] * scale[2]];
         // turned about x, then y, then z (degrees), as the shapes are
@@ -86,6 +90,10 @@ export const placeEntries: readonly CommandEntry[] = [
           // a sketch (a slab) is moved the way the shapes are: scaled, then
           // turned, then moved
           const k = a.env.kernel;
+          /**
+           * A slab of a sketch placed the way the shapes are, skipping any step
+           * that does nothing.
+           */
           const moved = (s: Solid) => {
             const scaled = scale.some((v) => v !== 1) ? k.scale(s, scale as Vec3) : s;
             return turn.some((v) => v) || move.some((v) => v) ? k.place(scaled, { rotation: turn as Vec3, position: move as Vec3 }) : scaled;
@@ -112,6 +120,7 @@ export const placeEntries: readonly CommandEntry[] = [
       onlyPlane(a, "rx", 0, "a flat shape can only be turned about z (in its own plane)");
       onlyPlane(a, "ry", 0, "a flat shape can only be turned about z (in its own plane)");
       onlyPlane(a, "sz", 1, "a flat shape has no height to stretch");
+      /** A flat shape scaled in its own plane, then turned about z and moved. */
       const put = (g: Flat) => k.flatPlace(scale[0] !== 1 || scale[1] !== 1 ? k.flatScale(g, [scale[0], scale[1]]) : g, { rotation: turn[2], position: [move[0], move[1]] });
       const flat = put(shape.flat);
       return { ...shape, flat, pieces: shape.pieces.length > 1 ? shape.pieces.map(put) : [flat] };
@@ -134,6 +143,7 @@ export const placeEntries: readonly CommandEntry[] = [
     buildsInner: true,
     moveOverlays: (a, overlays, add) => {
       const axis = AXIS_INDEX[a.text("axis")];
+      /** A point mirrored across the chosen axis. */
       const flip = (p: Vec3): Vec3 => p.map((v, i) => (i === axis ? -v : v)) as Vec3;
       for (const o of overlays) {
         const copy: Overlay = o.kind === "point" ? { ...o, at: flip(o.at) } : o.kind === "face" ? { ...o, ring: o.ring.map(flip) } : { ...o, solid: a.env.kernel.mirror(o.solid, axis), pieces: o.pieces.map((p) => a.env.kernel.mirror(p, axis)) };

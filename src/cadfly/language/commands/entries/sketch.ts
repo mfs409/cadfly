@@ -82,6 +82,7 @@ function flatOf(env: Env, a: BlockArgs, kids: Shape[], what: string): FlatPiece 
  */
 function showSketch(env: Env, a: BlockArgs, sketch: FlatPiece) {
   if (a.block.hidden !== true) return;
+  /** A flat shape as a thin slab on the sketch's plane, so it can be drawn. */
   const slab = (f: Flat, thickness: number) => onPlane(env.kernel, env.kernel.extrudeFlat(f, thickness), a.text("plane") as PlaneName, a.num("offset"));
   // each piece is a little taller than the one before, so its outline is
   // drawn above it
@@ -283,6 +284,7 @@ export const sketchEntries: readonly CommandEntry[] = [
         // the two outlines it blends between, one on the plane and one `height`
         // along its normal
         const k = env.kernel;
+        /** An outline as a thin slab at this height along the sketch's normal. */
         const slab = (ring: Vec2[], at: number) => k.place(k.extrudeFlat(k.flat([ring]), SKETCH_THICKNESS), { position: [0, 0, at] });
         for (const s of [slab(low, 0), slab(high, height)]) env.overlays.push({ kind: "sketch", blockId: a.block.id, solid: onPlane(k, s, a.text("plane") as PlaneName, a.num("offset")), pieces: [] });
       }
@@ -348,6 +350,10 @@ export const sketchEntries: readonly CommandEntry[] = [
         // facing along the path
         const first = [path[0], path[1]];
         const last = [path[path.length - 2], path[path.length - 1]];
+        /**
+         * A short line at one end of the path, along the way the path faces
+         * there, so the end of the path can be drawn.
+         */
         const toward = (from: Vec3, to: Vec3, start: boolean): Vec3[] => {
           const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
           const len = Math.hypot(...d) || 1;

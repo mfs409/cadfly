@@ -1,7 +1,7 @@
 import { RESERVED } from "../geometry/expr";
 import { blankBlock, blockWith, commandById } from "./commands";
 import { VARIABLE_NAME, inputNames } from "./env";
-import { blocksToWrap, findBlock, findBuildIndex, findScript, freshScriptId, idCounter, isGlobalScript, type BlockLocation, type InsertPoint } from "./program";
+import { allBlocks, blocksToWrap, blocksWithin, findBlock, findBuildIndex, findScript, freshScriptId, idCounter, isGlobalScript, type BlockLocation, type InsertPoint } from "./program";
 import { BUILD, type Block, type Point, type Program, type Script } from "./types";
 
 /**
@@ -10,7 +10,9 @@ import { BUILD, type Block, type Point, type Program, type Script } from "./type
  * the function doesn't change anything, it still returns a new Program.
  *
  * The operations cover the blocks (insert, take, wrap, set a field or a flag)
- * and the scripts (add, remove, rename, change the inputs of, fold, move).
+ * and the scripts (add, remove, rename, change the inputs of, fold, move), and
+ * carrying the editor's own state (what is folded, opened or moved) from one
+ * program to another.
  */
 
 /**
@@ -180,7 +182,7 @@ export function setArg(program: Program, blockId: string, paramId: string, value
 }
 
 /** The on/off settings of a block, for `setFlag` */
-export type BlockFlag = "collapsed" | "hidden" | "disabled" | "expanded";
+export type BlockFlag = "collapsed" | "hidden" | "disabled";
 
 /**
  * Turn one of a block's settings on or off. Off removes the setting:
@@ -191,8 +193,6 @@ export type BlockFlag = "collapsed" | "hidden" | "disabled" | "expanded";
  *   picture, the export or the block around it; or show it again.
  * - `disabled`: switch a block that changes what is inside it off (the shapes
  *   inside pass through), or on again.
- * - `expanded`: show all of a partly exposed block's fields (or only the ones
- *   its mode offers): "more" and "less" on the block.
  *
  * @param program The program (not changed).
  * @param blockId The block.
@@ -210,6 +210,7 @@ export function setFlag(program: Program, blockId: string, flag: BlockFlag, on: 
 
 /** A place on the workspace, rounded to 2 decimals and not less than 0 */
 function roundedPlace(at: Point): Point {
+  /** Round to 2 decimals, and not below 0. */
   const round = (v: number) => Math.max(0, Math.round(v * 100) / 100);
   return { x: round(at.x), y: round(at.y) };
 }
@@ -405,4 +406,237 @@ export function fillFaces(program: Program, facesId: string, faces: number[][]):
   const nextId = idCounter(next);
   found.block.inner = [...(found.block.inner ?? []), ...faces.map((corners) => blockWith("face", nextId(), { corners: corners.join(" ") }))];
   return next;
+}
+
+/**
+ * Put what the editor keeps only for display, as it is in `current`, onto
+ * `restored`. A fold or a move is a change to how the program is shown and not to what it makes, so it is not a step that undo takes back;
+ * but the program that undo or redo brings back was copied before it, and would
+ * otherwise undo it as well.
+ *
+ * For every script of `restored` that `current` also has (by id) the script's
+ * place (`at`) and its fold are the ones in `current`, and for every block that
+ * `current` also has the block's fold is. What `current` does
+ * not have (a script or block that undo brings back) keeps what it had.
+ *
+ * @param restored The program that is being put back.
+ * @param current The program that it replaces.
+ * @returns A new program: `restored`, with the display state of `current`.
+ */
+export function carryViewState(restored: Program, current: Program): Program {
+  const next = structuredClone(restored);
+  const scripts = new Map(current.map((s) => [s.id, s]));
+  const blocks = new Map(allBlocks(current).map((b) => [b.id, b]));
+  /** Set a flag as the other has it: on, or not there at all. */
+  const copyFold = (to: { collapsed?: boolean }, from: { collapsed?: boolean }) => {
+    if (from.collapsed === true) to.collapsed = true;
+    else delete to.collapsed;
+  };
+  for (const script of next) {
+    const was = scripts.get(script.id);
+    if (!was) continue;
+    copyFold(script, was);
+    if (was.at) script.at = { ...was.at };
+    else delete script.at;
+  }
+  for (const block of allBlocks(next)) {
+    const was = blocks.get(block.id);
+    if (!was) continue;
+    copyFold(block, was);
+  }
+  return next;
+}
+
+/** Matches a word in an expression, whatever it is a name of */
+const WORD_IN_EXPRESSION = /(?<![\w.])[A-Za-z_]\w*(?!\w)/g;
+
+/**
+ * Every word in an expression that is the name of a variable: not a number's
+ * letter (`1e3`), not a function being called (`max(`), not a word that has a
+ * meaning of its own (`pi`, `and`).
+ */
+function variableWords(text: string): string[] {
+  return [...text.matchAll(WORD_IN_EXPRESSION)].filter((m) => !RESERVED.has(m[0]) && text[m.index + m[0].length] !== "(").map((m) => m[0]);
+}
+
+/**
+ * Change the names in an expression: the variables for which `to` has a new
+ * name.
+ *
+ * @param text The expression.
+ * @param to The new name of each variable that is renamed.
+ */
+function renameInExpression(text: string, to: ReadonlyMap<string, string>): string {
+  return text.replace(WORD_IN_EXPRESSION, (word, offset: number) => (to.has(word) && !RESERVED.has(word) && text[offset + word.length] !== "(" ? to.get(word)! : word));
+}
+
+/**
+ * Visit every field of the blocks (and the blocks inside them) that holds a
+ * name, and give it a new value.
+ *
+ * @param blocks The blocks, which are changed in place.
+ * @param how What to do to the text of each kind of field that holds names: an
+ *            expression, the name of a variable, or the name of a script.
+ */
+function rewriteNames(blocks: Block[], how: { expression: (text: string) => string; variable: (name: string) => string; script: (name: string) => string }): void {
+  for (const block of blocks) {
+    const def = commandById(block.kind);
+    for (const param of def?.params ?? []) {
+      const value = block.args[param.id];
+      if (typeof value !== "string") continue;
+      if (param.type.kind === "expr") block.args[param.id] = how.expression(value);
+      // a measure block's name is the start of the names it makes, not a variable
+      else if (param.type.kind === "var" && block.kind !== "measure") block.args[param.id] = how.variable(value);
+      else if (block.kind === "use" && param.id === "name") block.args[param.id] = how.script(value);
+      else if (block.kind === "use" && param.id === "values") block.args[param.id] = how.expression(value);
+    }
+    if (block.inner) rewriteNames(block.inner, how);
+  }
+}
+
+/** The names of the global variables a program sets: the `set` blocks of its global scripts */
+function globalNames(program: Program): string[] {
+  return program.filter(isGlobalScript).flatMap((s) => s.blocks.filter((b) => b.kind === "set").map((b) => String(b.args.name)));
+}
+
+/**
+ * The first name of the form `base2`, `base3`, ... that is not taken.
+ *
+ * @param base The name it starts from.
+ * @param taken The names that cannot be used.
+ */
+function freeName(base: string, taken: ReadonlySet<string>): string {
+  let n = 2;
+  while (taken.has(`${base}${n}`)) n++;
+  return `${base}${n}`;
+}
+
+/**
+ * The name for the script that holds an added program's `build`: the name of
+ * the program with anything that is not a letter or digit turned into `_`
+ * ("Dowel joint" is `dowel_joint`).
+ */
+function scriptNameFor(title: string): string {
+  const words = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return /^[a-z]/.test(words) ? words : `part_${words}`.replace(/_$/, "");
+}
+
+/** What `addProgram` did, besides making the new program */
+export interface AddedProgram {
+  /** The project with the other program added */
+  program: Program;
+  /** The name of the script that holds the added program's `build` (absent when its blocks went straight into `build`) */
+  scriptName?: string;
+}
+
+/** How the blocks of an added program are put in */
+export interface AddProgramOptions {
+  /** What the added program is called, which names the script that holds its blocks */
+  title: string;
+  /**
+   * Put the blocks straight at the end of `build`, not in a script of their
+   * own. This is for a program that is only a `build`, added where scripts are
+   * not offered; any other program is added with a script.
+   */
+  inline?: boolean;
+  /** The STL files the project has: a program that imports one it lacks is refused */
+  files?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Add another whole program (an example, say) to this one, so that both work
+ * together and neither is disturbed:
+ *
+ * - Its named scripts join the program under fresh ids. One whose name the
+ *   program already has is renamed (`hinge` to `hinge2`), and so is every `use`
+ *   of it in the added program.
+ * - Its global variables join as global scripts. One whose name is already a
+ *   global of the program is renamed (`size` to `size2`) everywhere the added
+ *   program says it, so the program's own variable keeps its value.
+ * - Its `build` goes into a new named script, and a `use` of that script is
+ *   added at the end of the program's `build`. (With `inline`, its blocks go
+ *   there directly instead.)
+ *
+ * Every added block gets a new id. Nothing is changed unless all of it can be
+ * added: it throws an Error otherwise, and the caller has the old program.
+ *
+ * @param program The program to add to (not changed).
+ * @param other The program to add (not changed).
+ * @param options What it is called, and how it goes in.
+ * @returns The new program, and the name of the script that holds the added
+ *          `build` if there is one.
+ */
+export function addProgram(program: Program, other: Program, options: AddProgramOptions): AddedProgram {
+  const added = structuredClone(other);
+  const missing = new Set<string>();
+  for (const block of blocksWithin(added.flatMap((s) => s.blocks))) {
+    const def = commandById(block.kind);
+    for (const param of def?.params ?? []) {
+      const value = block.args[param.id];
+      if (param.type.kind === "file" && typeof value === "string" && value && !(options.files && value in options.files)) missing.add(value);
+    }
+  }
+  if (missing.size) throw new Error(`it needs the STL file${missing.size === 1 ? "" : "s"} ${[...missing].join(", ")}, which this project does not have`);
+
+  const build = added.find((s) => s.name === BUILD);
+  const others = added.filter((s) => s !== build);
+  const inline = options.inline === true && others.length === 0;
+
+  // rename what clashes, in the added program only. First note every name the
+  // added program uses (this visit only reads: each callback records what it is
+  // given and hands it back unchanged), so a new name cannot collide with one.
+  const used = new Set<string>(RESERVED);
+  const words = (text: string) => variableWords(text).forEach((w) => used.add(w));
+  for (const script of added) if (script.inputs) words(script.inputs);
+  rewriteNames(added.flatMap((s) => s.blocks), { expression: (t) => (words(t), t), variable: (n) => (used.add(n), n), script: (n) => n });
+  const existingGlobals = new Set(globalNames(program));
+  for (const name of existingGlobals) used.add(name);
+  const variableRenames = new Map<string, string>();
+  for (const name of globalNames(added)) {
+    if (!existingGlobals.has(name) || variableRenames.has(name)) continue;
+    const renamed = freeName(name, used);
+    used.add(renamed);
+    variableRenames.set(name, renamed);
+  }
+  const takenScripts = new Set([...program, ...added].map((s) => s.name).filter((n): n is string => n !== undefined));
+  const scriptRenames = new Map<string, string>();
+  for (const script of others) {
+    if (script.name === undefined || !program.some((s) => s.name === script.name)) continue;
+    const renamed = freeName(script.name, takenScripts);
+    takenScripts.add(renamed);
+    scriptRenames.set(script.name, renamed);
+  }
+  const rename = (name: string) => scriptRenames.get(name) ?? name;
+  const renameVariable = (name: string) => variableRenames.get(name) ?? name;
+  for (const script of added) {
+    if (script.name !== undefined && script.name !== BUILD) script.name = rename(script.name);
+    if (script.inputs) script.inputs = renameInExpression(script.inputs, variableRenames);
+    rewriteNames(script.blocks, { expression: (t) => renameInExpression(t, variableRenames), variable: renameVariable, script: rename });
+  }
+
+  // give everything added new ids, and put it in
+  const next = structuredClone(program);
+  const nextBlockId = idCounter(next, added.flatMap((s) => s.blocks));
+  const renumber = (blocks: Block[]) => {
+    for (const block of blocks) {
+      block.id = nextBlockId();
+      if (block.inner) renumber(block.inner);
+    }
+  };
+  for (const script of added) renumber(script.blocks);
+  for (const script of others) {
+    delete script.at; // where it floats was for the program it came from
+    next.push({ ...script, id: freshScriptId(next) });
+  }
+  const buildBlocks = build?.blocks ?? [];
+  const target = next[findBuildIndex(next)] ?? next[next.push({ id: freshScriptId(next), name: BUILD, blocks: [] }) - 1];
+  if (inline) {
+    target.blocks.push(...buildBlocks);
+    return { program: next };
+  }
+  const base = scriptNameFor(options.title);
+  const scriptName = takenScripts.has(base) ? freeName(base, takenScripts) : base;
+  next.push({ id: freshScriptId(next), name: scriptName, blocks: buildBlocks });
+  target.blocks.push(blockWith("use", nextBlockId(), { name: scriptName, values: "" }));
+  return { program: next, scriptName };
 }

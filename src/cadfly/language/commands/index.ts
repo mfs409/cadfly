@@ -20,9 +20,9 @@ import type { CommandEntry, CommandDef } from "./types";
  * palette tab, with one entry for each command), and the lookup that the
  * helpers and entries use while they run. This file puts the entries in order
  * and turns each into a command for `COMMANDS` (`finished`: the color derived
- * from the category, the fields that stay quiet, the modifiers, the sketches,
- * and which fields a partly exposed block shows), and has the lookups
- * `commandById`, and `blankBlock` and `blockWith` for making blocks.
+ * from the category, the fields that stay quiet, the modifiers and the
+ * sketches), and has the lookups `commandById`, and `blankBlock` and
+ * `blockWith` for making blocks.
  */
 
 /**
@@ -75,38 +75,10 @@ function isQuiet(c: CommandEntry, p: Param): boolean {
 const MODIFIERS = ["transform", "mirror", "round", "fillet", "chamfer", "shell", "lineUp", "placeAgainst"];
 
 /**
- * What "partial" means for each block: the fields it still offers. A block not
- * listed has nothing to hide. Change a line to change what a partly exposed
- * block looks like in every mode. It is what lets the early modes show a block
- * with its main fields only (a box shows its width, depth and height), with the
- * others under "more".
- */
-const PARTIAL: Record<string, readonly string[]> = {
-  transform: ["x", "y", "z"],
-  box: ["w", "d", "h"],
-  cylinder: ["r", "h"],
-  sphere: ["r"],
-  import: ["file", "scale"],
-  rectangle: ["u", "v", "w", "h", "hole"],
-  circle: ["u", "v", "r", "hole"],
-  polygon: ["hole"],
-  text: ["text", "font", "u", "v", "size", "hole"],
-  extrude: ["plane", "height"],
-  revolve: ["plane", "angle"],
-  loft: ["height"],
-  sweep: [],
-  solid: [],
-  chamfer: ["size"],
-  union: [],
-  subtract: [],
-  intersect: [],
-};
-
-/**
  * A table entry made into a command: its color filled in (the category's,
  * unless `COLOR_OVERRIDES` names the entry), its quiet fields marked, its `make`
- * wrapped if it is a modifier or made from its `sketch`, and its partial fields
- * set. The entry is not changed.
+ * wrapped if it is a modifier or made from its `sketch`. The entry is not
+ * changed.
  */
 function finished(c: CommandEntry): CommandDef {
   let make = c.make;
@@ -125,7 +97,6 @@ function finished(c: CommandEntry): CommandDef {
     params: c.params.map((p) => (isQuiet(c, p) ? { ...p, quiet: true } : p)),
     ...(modifier ? { modifier } : {}),
     ...(make ? { make } : {}),
-    ...(c.id in PARTIAL ? { partial: PARTIAL[c.id] } : {}),
   };
 }
 
@@ -196,5 +167,5 @@ export const COMMANDS: readonly CommandDef[] = inOrder([...codeEntries, ...shape
 registerCommands(COMMANDS);
 
 export { blankBlock, blockWith, commandById };
-export { FLAT_SHAPES, MAX_BUILT_BLOCKS, SHAPES } from "./types";
+export { FLAT_SHAPES, MAX_BUILT_BLOCKS, SHAPES, canDisable, canHide } from "./types";
 export type { CommandDef, CommandEntry } from "./types";

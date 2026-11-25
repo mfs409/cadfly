@@ -7,7 +7,7 @@
 
 import { evaluateExpr, ExprError } from "../../../geometry/expr";
 import { ProgramError, inputNames, splitValues } from "../../env";
-import { BUILD } from "../../types";
+import { BUILD, isFlat } from "../../types";
 import { expr, text, merged, mergedSolid } from "../helpers";
 import { SHAPES } from "../types";
 import type { CommandEntry } from "../types";
@@ -116,7 +116,10 @@ export const codeEntries: readonly CommandEntry[] = [
    * inputs and variables, and nothing of the blocks around this one: its inputs
    * win over the globals. A problem inside the script is reported on the block
    * that has it, with which use led to it. Scripts using scripts are limited to
-   * `MAX_SCRIPT_DEPTH` levels, to stop a script that uses itself.
+   * `MAX_SCRIPT_DEPTH` levels, to stop a script that uses itself. What the
+   * script makes is merged into one shape, but when the `use` is at the top of
+   * `build` and the script makes several solids, they are also reported as
+   * parts (`Env.partsOfUse`).
    */
   {
     id: "use",
@@ -152,10 +155,14 @@ export const codeEntries: readonly CommandEntry[] = [
       try {
         // the script sees the globals and its own inputs (which win), not the
         // variables of the blocks that use it
-        const kids = env.inScope(env.globals.child(), () => {
+        const parts = env.inScope(env.globals.child(), () => {
           inputs.forEach((n, i) => env.scope.set(n, numbers[i]));
-          return env.buildBlocks(script!.blocks);
+          return env.buildParts(script!.blocks);
         });
+        const kids = parts.map((p) => p.shape);
+        // a script that makes several solids, used at the top of build: they
+        // are told apart as parts, though they merge into one shape here
+        if (env.useDepth === 1 && kids.length > 1 && !kids.some(isFlat)) env.partsOfUse?.(parts);
         return kids.length ? merged(env, a, kids) : null;
       } catch (e) {
         // say which use led to a problem inside the script, once (the

@@ -5,6 +5,16 @@ import type { StlFiles } from "./files";
 import type { Block, Problem, Script, Shape } from "./types";
 
 /**
+ * What a running program carries with it. `Env` holds the variables and
+ * scripts, the project's files, what has been found to draw, and the geometry
+ * kernel. `Scope` is a chain of variable tables, so that a block that holds
+ * others can set variables of its own. `BlockArgs` reads the fields of the
+ * block that is running. This file also has the error that stops a run, the
+ * rules for names and lists in fields, and the conversion of any failure into a
+ * problem the editor can show.
+ */
+
+/**
  * What the running program has to show in the 3D view besides its shapes: a dot
  * with a number (a corner of a solid), a face (the ring of its corners) with
  * the id of the face block it comes from, or a sketch.
@@ -122,6 +132,14 @@ export class Scope {
   }
 }
 
+/** A shape that a list of blocks built, with what to call it */
+export interface Part {
+  /** What the block that made it calls it */
+  name: string;
+  /** The shape */
+  shape: Shape;
+}
+
 /**
  * What a running program knows: its variables and scripts, the project's files,
  * what it has found to show, and the geometry kernel. A block that holds other
@@ -156,6 +174,17 @@ export class Env {
    * builds what it holds
    */
   buildBlocks: (blocks: Block[]) => Shape[] = () => [];
+  /**
+   * Builds a list of blocks like `buildBlocks`, and says what each shape is
+   * called
+   */
+  buildParts: (blocks: Block[]) => Part[] = () => [];
+  /**
+   * Set only while the `use` that is at the top of `build` is being built: it
+   * is told the shapes that the script made, one by one, so that they can be
+   * shown (and exported) as parts instead of as the one shape they merge into.
+   */
+  partsOfUse?: (parts: Part[]) => void;
   /**
    * What each measure block found the last time it ran (by block id): the
    * variables it set, for showing

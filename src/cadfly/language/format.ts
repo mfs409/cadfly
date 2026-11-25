@@ -1,7 +1,7 @@
 import { RESERVED } from "../geometry/expr";
-import { commandById } from "./commands";
+import { canDisable, canHide, commandById } from "./commands";
 import { VARIABLE_NAME, inputNames } from "./env";
-import { accepts, acceptsInScript } from "./program";
+import { accepts, acceptsInScript, allBlocks } from "./program";
 import { type StlFiles, validateStlFiles } from "./files";
 import { BUILD, type Block, type Program, type Script } from "./types";
 
@@ -77,13 +77,12 @@ function check(block: unknown, parent: string | null, depth: number, seen: Set<s
   if (b.collapsed !== undefined && typeof b.collapsed !== "boolean") throw new Error(`${at}: collapsed must be true or false`);
   if (b.hidden !== undefined) {
     if (typeof b.hidden !== "boolean") throw new Error(`${at}: hidden must be true or false`);
-    if (!def.make || def.observer) throw new Error(`${at}: a ${def.word} block makes no shape of its own, so it cannot be hidden`);
+    if (!canHide(def)) throw new Error(`${at}: a ${def.word} block makes no shape of its own, so it cannot be hidden`);
   }
   if (b.disabled !== undefined) {
     if (typeof b.disabled !== "boolean") throw new Error(`${at}: disabled must be true or false`);
-    if (!def.modifier) throw new Error(`${at}: a ${def.word} block does not change what is inside it, so it cannot be disabled`);
+    if (!canDisable(def)) throw new Error(`${at}: a ${def.word} block does not change what is inside it, so it cannot be disabled`);
   }
-  if (b.expanded !== undefined && typeof b.expanded !== "boolean") throw new Error(`${at}: expanded must be true or false`);
   if (b.inner !== undefined) {
     if (!def.inner) throw new Error(`${at}: a ${def.word} block cannot hold other blocks`);
     if (!Array.isArray(b.inner)) throw new Error(`${at}: inner must be a list`);
@@ -135,6 +134,7 @@ export function validateProgram(program: unknown): asserts program is Program {
     if (collapsed !== undefined && typeof collapsed !== "boolean") throw new Error(`${at}: collapsed must be true or false`);
     if (place !== undefined) {
       const pos = place as Record<string, unknown>;
+      /** Is this a finite number no bigger than the limit? */
       const ok = (v: unknown) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= MAX_AT;
       if (typeof pos !== "object" || pos === null || !ok(pos.x) || !ok(pos.y)) throw new Error(`${at}: at must be an x and a y, numbers no bigger than ${MAX_AT}`);
     }
@@ -149,6 +149,22 @@ export function validateProgram(program: unknown): asserts program is Program {
     }
   });
   if (!names.has(BUILD)) throw new Error(`a program needs a script called "${BUILD}"`);
+}
+
+/** The end of a saved project's file name. */
+export const PROJECT_EXTENSION = ".cadfly";
+
+/** The file name that Save offers. */
+export const PROJECT_FILE_NAME = `design${PROJECT_EXTENSION}`;
+
+/**
+ * Is this the name of a project file? It ends in `.cadfly`, in any case, and
+ * has something before it.
+ *
+ * @param name A file name.
+ */
+export function isProjectFileName(name: string): boolean {
+  return name.length > PROJECT_EXTENSION.length && name.toLowerCase().endsWith(PROJECT_EXTENSION);
 }
 
 /** A saved project: the program, and the STL files its import blocks use */
@@ -184,5 +200,7 @@ export function parseProject(text: string): Project {
   const { program, files = {} } = data as { program?: unknown; files?: unknown };
   validateProgram(program);
   validateStlFiles(files);
+  // `expanded` is no longer a thing a block has; a file that still carries it is loaded without it
+  for (const block of allBlocks(program)) delete (block as { expanded?: unknown }).expanded;
   return { program, files };
 }

@@ -179,6 +179,19 @@ export function removeFile(files: StlFiles, name: string): StlFiles {
 }
 
 /**
+ * Do two sets of files hold the same files? They do when they have the same
+ * names and the data under each name is the very same text (compared by value,
+ * which is quick when it is the same string).
+ *
+ * @param a One set of files.
+ * @param b Another set of files.
+ */
+export function sameFiles(a: StlFiles, b: StlFiles): boolean {
+  const names = Object.keys(a);
+  return names.length === Object.keys(b).length && names.every((name) => name in b && a[name] === b[name]);
+}
+
+/**
  * Make sure that the StlFiles of a saved project (or of the browser's
  * storage) is sound. Throws an Error if it's not.
  *

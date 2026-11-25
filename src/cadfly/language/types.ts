@@ -52,9 +52,6 @@ export interface Block {
    */
   disabled?: boolean;
 
-  /** In some modes of the UI, this can toggle some of a block's details */
-  expanded?: boolean;
-
   /** Should this block display just its header, or the full block? */
   collapsed?: boolean;
 }
