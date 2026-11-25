@@ -145,6 +145,8 @@ export function createToolbar(host: ToolbarHost): () => ToolbarButton[] {
           { label: "Add to project", run: () => addToProject(e.id) },
         ],
       })),
+      [],
+      { wide: true },
     );
   };
 
@@ -178,15 +180,15 @@ export function createToolbar(host: ToolbarHost): () => ToolbarButton[] {
   };
 
   /**
-   * Offer the two ways to save an STL as cards over the page, with a check box
-   * for the hidden shapes.
+   * Offer the two ways to save an STL as cards over the page, each tapped to
+   * choose it, with a check box for the hidden shapes.
    */
   const chooseExport = () =>
     openCards(
       "Save an STL",
       [
-        { title: "One file", description: "Everything you see, joined into a single STL: part.stl.", actions: [{ label: "Save", color: "#1f9d55", run: (on) => void saveStl({ separate: false, withHidden: on[0] }) }] },
-        { title: "Each part as its own file", description: "A zip with an STL for every shape at the top of build (and for every shape a script used there makes), so the parts can be printed apart: parts.zip.", actions: [{ label: "Save zip", color: "#1f9d55", run: (on) => void saveStl({ separate: true, withHidden: on[0] }) }] },
+        { title: "Save one file", description: "Everything you see, joined into a single STL: part.stl.", pick: (on) => void saveStl({ separate: false, withHidden: on[0] }) },
+        { title: "Save each part as its own file", description: "A zip with an STL for every shape at the top of build (and for every shape a script used there makes), so the parts can be printed apart: parts.zip.", pick: (on) => void saveStl({ separate: true, withHidden: on[0] }) },
       ],
       [{ label: "Include hidden shapes" }],
     );

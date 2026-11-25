@@ -44,7 +44,8 @@ export interface Settings {
   /** Is the assistant offered? */
   assistantOn(): boolean;
   /**
-   * Offer the modes as cards over the page. A mode that is chosen is
+   * Offer the modes as cards over the page, each tapped to choose it. Tapping
+   * the mode in force only closes the cards. A mode that is chosen is
    * remembered, and a message says which blocks already in the program it does
    * not offer.
    */
@@ -95,7 +96,10 @@ export function createSettings(host: SettingsHost): Settings {
           description: m.description,
           tag: m.current ? "current" : undefined,
           marked: m.current,
-          actions: m.current ? [] : [{ label: `Use ${m.name}`, run: () => choose(m.name) }],
+          // tapping the mode in force just closes the overlay
+          pick: () => {
+            if (!m.current) choose(m.name);
+          },
         })),
       );
     },

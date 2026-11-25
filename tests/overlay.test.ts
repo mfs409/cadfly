@@ -4,9 +4,10 @@ import { type Card, openCards } from "../src/cadfly/ui/overlay";
 
 /*
  * How an overlay of cards behaves on a page: what closes it (Escape, a click
- * outside the cards, its Close button, a card's button), what a card's button
- * hands on, that clicks and keys stay away from the page underneath while it is
- * open, and that closing takes away everything it added.
+ * outside the cards, its Close button, a choice made), what a choice hands on,
+ * how a card with one choice is tapped as a whole while a card with several
+ * keeps its buttons, that clicks and keys stay away from the page underneath
+ * while it is open, and that closing takes away everything it added.
  */
 
 /** Wait for the timer that arms an overlay's listeners, which is not set until the next turn. */
@@ -289,5 +290,106 @@ describe("what closing takes away", () => {
     expect(document.body.children).toHaveLength(1);
     close();
     expect(document.body.children).toHaveLength(0);
+  });
+});
+
+describe("a card with one choice", () => {
+  /** The card that has this name, as the element that holds it. */
+  const card = (title: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.startsWith(title))!;
+
+  /** Two such cards, the second the one in force, which picks nothing. */
+  function pickCards(log: boolean[][]): Card[] {
+    return [
+      { title: "Other", description: "choose this", pick: (on) => log.push(on) },
+      { title: "Current", description: "already in force", tag: "current", marked: true, pick: () => {} },
+    ];
+  }
+
+  test("is a button as a whole, so it can be focused, and has no other buttons inside", () => {
+    openCards("Choose one", pickCards([]));
+    const tappable = card("Other");
+    expect(tappable.tabIndex).toBe(0);
+    expect(tappable.querySelector("button")).toBeNull();
+    expect(tappable.textContent).toContain("choose this");
+  });
+
+  test("makes its choice once when it is tapped anywhere on it, after the overlay has closed", () => {
+    const log: boolean[][] = [];
+    let present: boolean | undefined;
+    openCards("Choose one", [{ title: "Other", description: "choose this", pick: (on) => (log.push(on), (present = backdrop() !== null)) }]);
+    (card("Other").lastElementChild as HTMLElement).click();
+    expect(log).toEqual([[]]);
+    expect(present).toBe(false);
+  });
+
+  test("hands on the check boxes, as a button on a card does", () => {
+    const log: boolean[][] = [];
+    openCards("Choose one", pickCards(log), [{ label: "extra", ticked: true }]);
+    card("Other").click();
+    expect(log).toEqual([[true]]);
+  });
+
+  test("the card of the choice already in force just closes the overlay", () => {
+    const log: boolean[][] = [];
+    openCards("Choose one", pickCards(log));
+    card("Current").click();
+    expect(backdrop()).toBeNull();
+    expect(log).toEqual([]);
+  });
+
+  test("leaves Enter and Space alone, so that they activate the focused card as they do any button", async () => {
+    openCards("Choose one", pickCards([]));
+    await armed();
+    for (const key of ["Enter", " "]) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      card("Other").dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(backdrop()).not.toBeNull();
+  });
+
+  test("a card with several choices keeps its own buttons and is not a button itself", () => {
+    openCards("Choose one", cards([]));
+    expect(button("Pick second")).toBeDefined();
+    expect(button("Pick other")).toBeDefined();
+    expect([...document.querySelectorAll("button")].filter((b) => b.textContent?.startsWith("Second"))).toHaveLength(0);
+  });
+});
+
+describe("a wide overlay", () => {
+  /** The element that holds the cards and check boxes: the scrolling list. */
+  const list = () => [...document.querySelectorAll<HTMLElement>("div")].find((d) => d.style.overflowY === "auto")!;
+
+  test("lays the cards out in a grid of equal columns, and by default in one column", () => {
+    openCards("Choose one", cards([]), [], { wide: true });
+    expect(list().style.display).toBe("grid");
+    expect(list().style.gridTemplateColumns).toContain("auto-fill");
+    document.body.replaceChildren();
+    openCards("Choose one", cards([]));
+    expect(list().style.display).toBe("flex");
+  });
+
+  test("puts a check box on a row of its own across every column", () => {
+    openCards("Choose one", cards([]), [{ label: "extra" }], { wide: true });
+    const box = [...document.querySelectorAll<HTMLElement>("label")].find((l) => l.textContent === "extra")!;
+    expect(box.style.gridColumn).toMatch(/^1\s*\/\s*-1$/);
+  });
+
+  test("closes and hands on a choice exactly as a narrow one does", async () => {
+    const log: boolean[][] = [];
+    openCards("Choose one", cards(log), [{ label: "extra", ticked: true }], { wide: true });
+    await armed();
+    press("Escape");
+    expect(backdrop()).toBeNull();
+    openCards("Choose one", cards(log), [{ label: "extra", ticked: true }], { wide: true });
+    button("Pick second")!.click();
+    expect(backdrop()).toBeNull();
+    expect(log).toEqual([[true]]);
+  });
+
+  test("keeps the buttons of a card at the bottom of it, so that they line up along a row", () => {
+    openCards("Choose one", cards([]), [], { wide: true });
+    const buttons = button("Pick second")!.parentElement!;
+    expect(buttons.style.marginTop).toBe("auto");
   });
 });
