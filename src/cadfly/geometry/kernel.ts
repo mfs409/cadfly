@@ -1,7 +1,8 @@
 /**
  * The shape-making operations (the `Kernel`) and the types they use. This file
- * is only types, so importing it costs nothing. `manifold.ts` makes the one
- * Kernel, and is the only file that uses manifold-3d.
+ * is only types, so importing it costs nothing. One
+ * implementation, built on manifold-3d, makes the Kernel, and nothing else uses
+ * manifold-3d.
  */
 
 /**
@@ -106,7 +107,7 @@ export interface Placement {
 
 /**
  * The geometry operations the language needs. Every dimension is supplied by
- * the caller, in the same units throughout (the editor says millimeters).
+ * the caller, in the same units throughout (millimeters, for printing).
  * Primitives are centered on the origin, with a cylinder's or cone's axis along
  * Z. Solids and flat shapes are immutable: every operation makes a new one.
  *
@@ -114,8 +115,7 @@ export interface Placement {
  * that WASM memory, which JavaScript's garbage collector cannot free. A shape
  * isn't freed when the code stops using it, so the kernel remembers every shape
  * it makes (including the in-between ones inside an operation), and
- * `release()` frees them all once a build is over. See `release`, `keep` and
- * `drop`.
+ * `release()` frees them all once a build is over.
  */
 export interface Kernel {
   /**
@@ -151,7 +151,8 @@ export interface Kernel {
    * Grow a solid: move every face outward by `r`, so the result is every point
    * within `r` of the original. Outside edges and corners come out rounded (a
    * `ball`) or beveled (a `diamond`). Followed by `erode`, it fills in the
-   * inside corners where shapes join. See `erode` for `element` and `detail`.
+   * inside corners where shapes join. `element` is the probe's shape (a `ball` or a `diamond`) and `detail` is how
+    * many segments the ball has.
    */
   dilate(s: Solid, r: number, element?: "ball" | "diamond", detail?: number): Solid;
   /**
@@ -215,7 +216,7 @@ export interface Kernel {
   mirror(s: Solid, axis: 0 | 1 | 2): Solid;
   /** Scale about the origin: one factor for all axes, or one per axis */
   scale(s: Solid, factor: number | Vec3): Solid;
-  /** Turn and move a solid (see `Placement`: turned first, then moved) */
+  /** Turn and move a solid (turned first, then moved) */
   place(s: Solid, p: Placement): Solid;
   /** Everything that is in either solid, as one */
   union(a: Solid, b: Solid): Solid;

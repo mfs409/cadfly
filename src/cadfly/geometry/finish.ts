@@ -1,4 +1,4 @@
-import type { Kernel, Solid } from "../geometry/kernel";
+import type { Kernel, Solid } from "./kernel";
 
 /**
  * Finishing a solid: hollowing it (`hollow`) and rounding or beveling its edges
@@ -11,8 +11,8 @@ import type { Kernel, Solid } from "../geometry/kernel";
 /**
  * Hollowing or rounding a shape that is not convex takes a long time, which
  * grows with its triangles (the ball is added to every convex part of it), and
- * nothing can stop it once it has started, except ending the engine's worker,
- * which the app does after 20 seconds.
+ * nothing can stop it once it has started, except ending the worker it runs
+ * in, which is done after 20 seconds.
  *
  * Measured on one (busy) computer, for a plate with one round hole in it, in
  * seconds. The times wander a lot from run to run, so these are rough.
@@ -56,13 +56,21 @@ function detailFor(tris: number): number {
 /**
  * Results already worked out, so that changing something elsewhere in a
  * program does not do it all again: keyed by the shape's exact triangles and
- * what was done to it (see `key`). Per kernel, and only a few (`REMEMBER`),
+ * what was done to it. Per kernel, and only a few (`REMEMBER`),
  * since each is a whole solid, kept in the kernel's memory.
  */
 const remembered = new WeakMap<Kernel, Map<string, Solid>>();
 
 /** How many results to keep for each kernel, before the oldest is let go */
 const REMEMBER = 12;
+
+/**
+ * How many finished results have been worked out (`computed`) and how many were
+ * found already remembered (`remembered`), since the page started. Nothing in
+ * it is only for checking that work is saved, or refused before it starts,
+ * without timing it.
+ */
+export const finishCounts = { computed: 0, remembered: 0 };
 
 /**
  * A name for a shape and what was done to it, for looking up a result
@@ -87,7 +95,7 @@ function key(s: Solid, ...what: (string | number | boolean)[]): string {
  * of the one used longest ago when it has more.
  *
  * @param k The kernel the results belong to.
- * @param id What the result is of (see `key`).
+ * @param id What the result is of.
  * @param make Does the work, when it has to be done.
  */
 function remember(k: Kernel, id: string, make: () => Solid): Solid {
@@ -95,10 +103,12 @@ function remember(k: Kernel, id: string, make: () => Solid): Solid {
   if (!cache) remembered.set(k, (cache = new Map()));
   const have = cache.get(id);
   if (have) {
+    finishCounts.remembered++;
     cache.delete(id); // most recently used last
     cache.set(id, have);
     return have;
   }
+  finishCounts.computed++;
   // kept through the kernel's release() (which frees what a build made), and
   // dropped when it is pushed out
   const made = k.keep(make());
@@ -138,7 +148,7 @@ function isConvex(k: Kernel, s: Solid): boolean {
 }
 
 /**
- * Refuse a shape that would take too long to build (see `MAX_TRIANGLES`),
+ * Refuse a shape that would take too long to build,
  * saying what to do instead
  *
  * @param what Which operation it is, which sets the limit and is named in the
@@ -165,9 +175,9 @@ function checkSize(k: Kernel, s: Solid, what: keyof typeof MAX_TRIANGLES, instea
  * one face open (the top or the bottom), like a cup or a box without its lid:
  * the inside is carried through that face.
  *
- * Throws a FinishError if the shape is too detailed (see `checkSize`), if the
+ * Throws a FinishError if the shape is too detailed, if the
  * walls are too thick to leave anything inside, or if nothing is left after
- * hollowing. The result is remembered (see `remember`).
+ * hollowing. The result is remembered.
  *
  * @param k The kernel to build with.
  * @param s The solid to hollow out.
@@ -214,9 +224,9 @@ function hollowOut(k: Kernel, s: Solid, thickness: number, open: "none" | "top" 
  * thinner than twice the size are lost when rounding outside edges, so that is
  * an error.
  *
- * Throws a FinishError if the shape is too detailed (see `checkSize`), if the
+ * Throws a FinishError if the shape is too detailed, if the
  * size is too big for the shape, or if the result is not a valid solid. The
- * result is remembered (see `remember`).
+ * result is remembered.
  *
  * @param k The kernel to build with.
  * @param s The solid to finish.

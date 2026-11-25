@@ -8,8 +8,7 @@ import { polygonArea } from "./vec";
  * A sketch shape is a plain description (a rectangle, a circle, a polygon, a
  * letter). `shapeToContour` checks it and turns it into a polygon. Positions
  * and sizes are in the plane's own (u, v) coordinates. The numbers are expected
- * to be finite: the blocks get them from the expression evaluator, which
- * refuses anything else.
+ * to be finite: whoever builds a shape checks that first.
  */
 
 /**
@@ -30,7 +29,7 @@ const NORMALS: Record<PlaneName, Vec3> = {
 };
 
 /**
- * The rotation (degrees about X, then Y, then Z, as in `Placement`) that takes
+ * The rotation (degrees about X, then Y, then Z) that takes
  * the kernel's local frame (a sketch in XY, extruding along +Z) onto each plane
  */
 const ROTATIONS: Record<PlaneName, Vec3> = {
@@ -135,7 +134,7 @@ export type SketchShape = RectShape | CircleShape | PolylineShape | GlyphShape;
 export class SketchError extends Error {}
 
 /**
- * A circle is drawn as a polygon with this many sides (see `Flat.polygons`).
+ * A circle is drawn as a polygon with this many sides.
  * Its area is then 99.84% of a true circle's.
  */
 const CIRCLE_SEGMENTS = 64;
@@ -236,8 +235,7 @@ function roundedRectangle(corner: Vec2, w: number, h: number, radius: number): V
 /**
  * Turn a shape into one closed polygon, checking it as it goes. A rectangle or
  * circle comes out counter-clockwise; a polygon keeps the order it was given.
- * A letter gives its biggest outline, without its holes (see `shapeToContours`
- * for those). The points are always new: they share nothing with the shape, so
+ * A letter gives its biggest outline, without its holes. The points are always new: they share nothing with the shape, so
  * they can be changed freely.
  *
  * Throws a SketchError, saying why, for a size that is not a positive number,
@@ -279,7 +277,7 @@ export function shapeToContour(s: SketchShape): Vec2[] {
 }
 
 /**
- * Every outline of a shape, read even-odd (see `GlyphShape.contours`): one for
+ * Every outline of a shape, read even-odd: one for
  * most shapes, and for a letter all of them, so its holes come with it. The
  * points are always new, as for `shapeToContour`.
  */

@@ -159,6 +159,25 @@ export function readStl(buf: ArrayBuffer): MeshData {
   throw new Error("not a valid STL file");
 }
 
+/**
+ * How far a mesh reaches in x (`width`), y (`depth`) and z (`height`): the sizes
+ * of its bounding box, in the mesh's own units. These are sizes, not
+ * coordinates. The mesh must have at least one point (otherwise every size is
+ * infinite).
+ */
+export function meshSize(mesh: MeshData): { width: number; depth: number; height: number } {
+  const p = mesh.positions;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < p.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], p[i + k]);
+      hi[k] = Math.max(hi[k], p[i + k]);
+    }
+  }
+  return { width: hi[0] - lo[0], depth: hi[1] - lo[1], height: hi[2] - lo[2] };
+}
+
 /** Bytes to base64, so an STL can live inside a JSON project file */
 export function toBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -178,27 +197,68 @@ function fromBase64(data: string): ArrayBuffer {
 }
 
 /**
- * How many parsed STLs to keep. Reading a big file takes a while, and
- * rebuilding the part asks for the same imported files again each time.
+ * The mesh in a base64 STL, parsed afresh each time, not remembered.
+ * Throws an Error if `data` is not a valid base64-encoded STL file.
  */
-const MAX_CACHED = 4;
+export function readBase64Stl(data: string): MeshData {
+  return readStl(fromBase64(data));
+}
 
 /**
- * The parsed files, by their base64 text. When it is full, the one added
- * longest ago is dropped (not the least recently used).
+ * The parsed files of a project: for each file name, the base64 text that was
+ * parsed and the mesh it gave. Reading a big file takes a while, and rebuilding
+ * the part asks for the same imported files again each time.
+ *
+ * It is keyed by name, which is unique in a project, so a file replaced under
+ * the same name replaces its entry. Nothing is dropped to make room:
+ * `keepOnlyMeshesNamed` drops the files the project no longer has, so the cache
+ * holds no more than the project's files, and the limits on the project's files limit it.
+ *
+ * The text is kept so that an entry is checked against the file it is asked for,
+ * and so is never wrong, whatever happened to the project.
  */
-const cache = new Map<string, MeshData>();
+const cache = new Map<string, { data: string; mesh: MeshData }>();
 
 /**
- * The mesh in a base64 STL, parsed once and reused. The same object is handed
- * back every time, so it must not be changed.
+ * The mesh of a project's file, parsed once and reused. The same object is
+ * handed back every time, so it must not be changed.
+ *
+ * An entry is used only if its text is the file's text. The usual case is the
+ * same string object, which is a pointer check and free. After a structured
+ * clone (as when files are sent to a worker) it is an
+ * equal string that is a different object, and the comparison reads all of it
+ * (about 3.6 ms for a file of the largest size); the entry then keeps the new
+ * string, so the later asks in that run are free. A file with other text under
+ * the same name is parsed again, and its entry replaced.
+ *
+ * This will throw an Error if `data` is not a valid base64-encoded STL file
+ *
+ * @param name The file's name in the project.
+ * @param data The file's base64 text.
  */
-export function meshFromBase64(data: string): MeshData {
-  let m = cache.get(data);
-  if (!m) {
-    m = readStl(fromBase64(data));
-    if (cache.size >= MAX_CACHED) cache.delete(cache.keys().next().value!);
-    cache.set(data, m);
+export function meshOfFile(name: string, data: string): MeshData {
+  const entry = cache.get(name);
+  if (entry && entry.data === data) {
+    // the same text, perhaps as a different string object (a copy sent to the
+    // worker): keep this one, so asking with it again is a quick comparison of
+    // the same object, not of all of the text
+    entry.data = data;
+    return entry.mesh;
   }
-  return m;
+  const mesh = readBase64Stl(data);
+  cache.set(name, { data, mesh });
+  return mesh;
+}
+
+/**
+ * Forget the parsed files whose names are not given. Call it whenever the
+ * project's files may have changed, with the names it has now: the files that
+ * were removed are freed, and the rest are kept. It looks at names only, so it
+ * is quick however big the files are.
+ *
+ * @param names The names of the project's files.
+ */
+export function keepOnlyMeshesNamed(names: Iterable<string>): void {
+  const keep = new Set(names);
+  for (const name of [...cache.keys()]) if (!keep.has(name)) cache.delete(name);
 }

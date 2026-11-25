@@ -1,3 +1,4 @@
+// Type-checks the app (src/) the way the app is built: CommonJS output, and manifold-3d typed from its declaration file.
 {
   "compilerOptions": {
     "module": "commonjs",

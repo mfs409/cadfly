@@ -2,3 +2,6 @@ node_modules/
 dist/
 local/
 eval/out/
+eval/reports/
+key.secret
+coverage/
