@@ -1,5 +1,13 @@
 import { Actor, BoxBody, FilledPolygon, FilledRoundedBox, Scene, TextSprite, ZIndex } from "jetlag2d";
 
+/**
+ * Pools of the game engine's actors that draw the editor. The engine never
+ * really deletes an actor, so a screen that is drawn again at every change
+ * reuses the same actors: a pool hands them out in order, and hides the ones
+ * that were not needed this time. One pool draws boxes with text, the other
+ * draws filled shapes. Everything is measured in meters.
+ */
+
 /** The font that every piece of text uses (needs Arimo-Regular.ttf in the assets) */
 export const FONT = "Arimo Regular";
 
@@ -22,7 +30,7 @@ export interface Look {
 }
 
 /** An actor that can be shown anywhere, as a box with text on it */
-interface Piece {
+interface BoxPiece {
   actor: Actor;
   box: FilledRoundedBox;
   text: TextSprite;
@@ -30,17 +38,24 @@ interface Piece {
   shown: boolean;
 }
 
+/** A fully transparent color: how a box with no fill or line is drawn */
 const CLEAR = "#00000000";
 
-/** The bookkeeping that the two pools share: pieces are handed out in order after `begin()`, and `end()` hides the ones not handed out */
+/**
+ * The bookkeeping that the two pools share: after `begin()`, pieces are handed
+ * out in order, and `end()` hides the ones that were not handed out. A pool
+ * never deletes a piece, because the engine never really deletes an actor.
+ */
 abstract class Pool<P extends { actor: Actor; shown: boolean }> {
   private pieces: P[] = [];
   private used = 0;
 
   constructor(protected scene: Scene) { }
 
+  /** Make a new piece, shown and waiting to be drawn on. */
   protected abstract make(): P;
 
+  /** Start a drawing: every piece is available again. */
   begin() {
     this.used = 0;
   }
@@ -73,14 +88,15 @@ abstract class Pool<P extends { actor: Actor; shown: boolean }> {
 }
 
 /**
- * The editor redraws its whole screen whenever anything changes.  JetLag
+ * A screen that is redrawn whenever anything changes needs a pool.  JetLag
  * never really deletes an actor (it only disables it), so making new ones for
  * every redraw would pile up forever.  Instead, a pool hands out the same few
  * pieces again: `begin()`, then `draw()` for each thing to show, then `end()`,
  * which hides the pieces that were not needed this time.
  */
-export class PiecePool extends Pool<Piece> {
-  protected make(): Piece {
+export class PiecePool extends Pool<BoxPiece> {
+  /** A new rounded box with a text sprite on it, kept far off screen until it is first drawn. */
+  protected make(): BoxPiece {
     const label = { value: "" };
     const box = new FilledRoundedBox({ width: 1, height: 1, radius: 0.1, fillColor: CLEAR, lineWidth: 0.02, lineColor: CLEAR });
     const text = new TextSprite({ center: true, face: FONT, size: 20, color: "#ffffff", z: 2 }, () => label.value);
@@ -123,6 +139,7 @@ export interface ShapeLook {
   z?: ZIndex;
 }
 
+/** One polygon actor in a `ShapePool`, and whether it is showing. */
 interface ShapePiece {
   actor: Actor;
   polygon: FilledPolygon;
@@ -135,6 +152,7 @@ interface ShapePiece {
  * shape's bounds. Pixi fills a concave polygon, which Box2D would not accept, but nothing here is physical.
  */
 export class ShapePool extends Pool<ShapePiece> {
+  /** A new polygon actor, kept far off screen until it is first drawn. */
   protected make(): ShapePiece {
     const polygon = new FilledPolygon({ vertices: [{ x: -0.5, y: -0.5 }, { x: 0.5, y: -0.5 }, { x: 0, y: 0.5 }], fillColor: CLEAR, lineWidth: 0.02, lineColor: CLEAR });
     // a big body, so that a big shape is not skipped when its middle is just off screen (the body decides what counts as "on screen")
@@ -142,6 +160,7 @@ export class ShapePool extends Pool<ShapePiece> {
     return { actor, polygon, shown: true };
   }
 
+  /** Show one filled shape, where and how `look` says. */
   draw(look: ShapeLook) {
     const piece = this.take();
     const xs = look.points.map((p) => p.x);

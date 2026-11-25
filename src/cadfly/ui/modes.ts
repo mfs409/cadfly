@@ -1,188 +1,185 @@
-import { COMMANDS, type CommandDef, commandById } from "./commands";
-import type { Block, Param } from "./types";
+import { COMMANDS, type CommandDef, canDisable, canHide } from "../language/commands";
+import { allBlocks, canStartScript } from "../language/program";
+import type { Block, Program } from "../language/types";
 
 /**
- * Modes: how much of the editor a person is shown. A mode says, for each kind
- * of block, whether the palette offers it and with how many of its fields, so
- * that a beginner sees a few blocks with a few fields and an experienced
- * person sees everything. A mode only changes what is offered and shown: it
- * never changes what a program builds, and it never hides what is already
- * there.
+ * Modes: how much of the interface a person is shown. A mode says which kinds
+ * of block the palette offers, so that a beginner sees a few blocks and an
+ * experienced person sees everything. A block that is offered has all of its
+ * fields. A mode only changes what is offered: it never changes what a program
+ * builds, and it never hides what is already there.
+ *
+ * This is UI policy, not part of the language: it is about what is offered,
+ * never about what a program means.
  */
 
 /**
- * How much of the interface a block gets. `hidden`: not offered in the palette
- * (and not offered to the assistant). `partial`: offered, with only the fields
- * its `partial` list in commands.ts names. `full`: offered with every field.
+ * A mode: how much of each kind of block is offered, and whether the person
+ * has the switches and scripts. The three are separate fields so that a kind
+ * of block can never be mistaken for one of the other settings.
  */
-export type Exposure = "hidden" | "partial" | "full";
+export interface ModeSpec {
+  /** The ids of the kinds of block the mode offers. A kind not listed is not offered. */
+  readonly blocks: readonly string[];
+  /**
+   * Whether blocks have the eye (hides a shape, or shows it again) and the power
+   * switch (turns off a block that changes what is inside it). One setting
+   * governs both, so a mode cannot offer one without the other. A block that is
+   * hidden or disabled always has its switch, so it can be turned back on.
+   */
+  readonly switches: boolean;
+  /**
+   * Whether scripts besides `build` (global scripts and named scripts) are a
+   * thing: a mode that has them lets you make them, and a mode that does not
+   * has only `build`, where the blocks connect to one another and dropping blocks
+   * in empty space is refused. "Lets you make them" means "+ new script" is
+   * offered in the palette, a named script's name and inputs are shown as chips
+   * to edit, with a button to remove it, a script can be moved by its header,
+   * and a `set` block dropped in empty space becomes a new global script. A
+   * program that has other scripts still shows and runs them in any mode, as
+   * text headers.
+   */
+  readonly scripts: boolean;
+}
+
+/** Every block, with the switches and scripts */
+export const EVERYTHING: ModeSpec = { blocks: COMMANDS.map((c) => c.id), switches: true, scripts: true };
 
 /**
- * A mode: an exposure for each kind of block, by id. A block not named is
- * hidden.
+ * Does this mode let you make scripts besides `build`? With no mode, yes.
+ *
+ * @param mode The mode in use, if any.
  */
-export type ModeSpec = Readonly<Record<string, Exposure>>;
+export function allowsScripts(mode: ModeSpec | undefined): boolean {
+  return mode ? mode.scripts : true;
+}
 
 /**
- * The eye on a shape block (hides it, or shows it again), and the power switch
- * on a block that changes what is inside it, are listed in a mode like a block
- * is: a mode that does not list it has neither. A block that is hidden or
- * disabled always has its switch, so it can be turned back on.
+ * Does this mode have the eye and the power switch? With no mode, yes.
+ *
+ * @param mode The mode in use, if any.
  */
-export const EYE = "eye";
-
-/** Every block, fully exposed (and the eye) */
-export const EVERYTHING: ModeSpec = { ...Object.fromEntries(COMMANDS.map((c) => [c.id, "full" as const])), [EYE]: "full" };
+function offersSwitches(mode: ModeSpec | undefined): boolean {
+  return mode ? mode.switches : true;
+}
 
 /**
- * Does a block show an eye? Only a block that makes a shape can be hidden.
+ * May blocks that were carried be dropped in empty space? That starts a new
+ * global script, so it is allowed only in a mode that has scripts, and only for
+ * `set` blocks. Anywhere else the blocks go back to
+ * where they came from.
+ *
+ * @param mode The mode in use, if any.
+ * @param blocks The blocks that are being carried.
+ */
+export function canDropFree(mode: ModeSpec | undefined, blocks: Block[]): boolean {
+  return allowsScripts(mode) && canStartScript(blocks);
+}
+
+/**
+ * Does a block show an eye? Only a block of a kind that makes a shape of its
+ * own does, and a block that is hidden always has its eye, so that it can be
+ * shown again.
  *
  * @param def The command the block is of.
  * @param mode The mode in use, if any.
  * @param block The block.
  */
 export function showsEye(def: CommandDef, mode: ModeSpec | undefined, block: Block): boolean {
-  return !!def.make && !def.piece && !def.observer && (block.hidden === true || exposure(mode, EYE) !== "hidden");
+  return canHide(def) && (block.hidden === true || offersSwitches(mode));
 }
 
 /**
  * Does a block show a power switch? Only a block that changes what is inside it
- * can be disabled (and the mode offers the eye's switches).
+ * can be disabled (and the mode offers the switches).
  *
  * @param def The command the block is of.
  * @param mode The mode in use, if any.
  * @param block The block.
  */
 export function showsPower(def: CommandDef, mode: ModeSpec | undefined, block: Block): boolean {
-  return def.modifier === true && (block.disabled === true || exposure(mode, EYE) !== "hidden");
+  return canDisable(def) && (block.disabled === true || offersSwitches(mode));
+}
+
+/** A mode that can be chosen: its name, and which blocks it offers */
+export interface UiMode {
+  /** What the mode is called */
+  name: string;
+  /** What the mode offers, in a sentence, for a person choosing */
+  description: string;
+  /** Which blocks the mode offers, and whether it has the switches and scripts */
+  spec: ModeSpec;
 }
 
 /**
- * The same exposure listed for several kinds of block: `give("partial", "box",
- * "cylinder")` is `{ box: "partial", cylinder: "partial" }`
+ * The modes that can be chosen, in this order. The first is what a new visitor
+ * sees, unless the page says otherwise (`?mode=Builder`). To add a mode, or
+ * change what one shows, change this list: nothing else needs to know.
  */
-function give(how: Exposure, ...kinds: string[]): ModeSpec {
-  return Object.fromEntries(kinds.map((k) => [k, how]));
-}
-
-/**
- * The modes the editor offers, in this order, as (name, which blocks and how
- * much of each). The first is what a new visitor sees, unless the page says
- * otherwise (`?mode=Builder`). To add a mode, or change what one shows, change
- * this list: nothing else needs to know.
- */
-export const UI_MODES: readonly (readonly [string, ModeSpec])[] = [
-  [
-    "First steps",
-    { ...give("partial", "box", "cylinder", "sphere", "union", "subtract"), ...give("partial", "transform") },
-  ],
-  [
-    "Starter",
-    { ...give("full", "box", "cylinder", "sphere", "set"), ...give("full", "transform"), ...give("partial", "union", "subtract", "intersect"), ...give("full", EYE) },
-  ],
-  [
-    "Builder",
-    {
-      ...give("full", "box", "cylinder", "sphere", "transform", "mirror", "set", "repeat", "if", "else", "define", "use", "round", "fillet", EYE),
-      ...give("partial", "union", "subtract", "intersect", "rectangle", "circle", "polygon", "point", "text", "extrude", "revolve", "shell"),
+export const UI_MODES: readonly UiMode[] = [
+  {
+    name: "First steps",
+    description: "A few basic shapes, joined with union and subtract and moved with transform. The blocks connect in one column.",
+    spec: { blocks: ["box", "cylinder", "sphere", "union", "subtract", "transform"], switches: false, scripts: false },
+  },
+  {
+    name: "Starter",
+    description: "Adds variables, intersect, and the eye and power switches.",
+    spec: { blocks: ["box", "cylinder", "sphere", "set", "transform", "union", "subtract", "intersect"], switches: true, scripts: false },
+  },
+  {
+    name: "Builder",
+    description: "Repeats and conditions, sketches and extrusions, mirror, rounding and fillets, and scripts of your own.",
+    spec: {
+      blocks: [
+        "box", "cylinder", "sphere", "transform", "mirror", "set", "repeat", "if", "else", "use", "round", "fillet",
+        "union", "subtract", "intersect", "rectangle", "circle", "polygon", "point", "text", "extrude", "revolve", "shell",
+      ],
+      switches: true,
+      scripts: true,
     },
-  ],
-  ["Everything", EVERYTHING],
+  },
+  { name: "Everything", description: "Every block, with every field.", spec: EVERYTHING },
 ];
 
 /** The name of the mode a new visitor sees: the first of `UI_MODES` */
-export const DEFAULT_MODE_NAME = UI_MODES[0][0];
+export const DEFAULT_MODE_NAME = UI_MODES[0].name;
+
+/**
+ * The name, as `UI_MODES` spells it, of the mode that this text names (in any
+ * case, with spaces at either end allowed), or undefined if it names none.
+ *
+ * @param text What was written, such as the value of `?mode=`.
+ */
+export function findModeName(text: string): string | undefined {
+  const lower = text.trim().toLowerCase();
+  return UI_MODES.find((m) => m.name.toLowerCase() === lower)?.name;
+}
 
 /** The mode with this name (in any case), if there is one */
 export function modeByName(name: string): ModeSpec | undefined {
-  const lower = name.trim().toLowerCase();
-  return UI_MODES.find(([n]) => n.toLowerCase() === lower)?.[1];
+  const found = findModeName(name);
+  return found === undefined ? undefined : UI_MODES.find((m) => m.name === found)?.spec;
 }
 
-/** How much of a kind of block a mode offers. With no mode, everything. */
-export function exposure(mode: ModeSpec | undefined, kind: string): Exposure {
-  return mode ? (mode[kind] ?? "hidden") : "full";
-}
-
-/**
- * Does a field hold something other than its default? (A field that does is
- * shown whatever the mode: a mode never hides what is there.)
- */
-function changed(block: Block, p: Param) {
-  const v = block.args[p.id];
-  return v !== undefined && v !== p.default;
-}
-
-/**
- * The fields of a block to show. A fully exposed block shows all of them; a
- * partly exposed one shows the ones its `partial` list names, and a block of a
- * kind the mode hides (one that was loaded, or made in another mode) shows all,
- * so nothing is lost. In every case a field with a value that is not its
- * default is shown.
- *
- * @param def The command the block is of.
- * @param mode The mode in use, if any.
- * @param block The block, if there is one (a palette entry has none yet).
- */
-export function shownParams(def: CommandDef, mode: ModeSpec | undefined, block?: Block): readonly Param[] {
-  if (exposure(mode, def.id) !== "partial" || !def.partial || block?.expanded === true) return def.params;
-  const wanted = new Set(def.partial);
-  return def.params.filter((p) => wanted.has(p.id) || (block !== undefined && changed(block, p)));
-}
-
-/**
- * Does a block have a "more" chip? A partly exposed block does, when it has
- * fields its partial list leaves out and not all of them are showing already:
- * "more" shows them, and once they are showing the chip says "less". Fully
- * exposed blocks, and blocks of a kind the mode hides, have none.
- *
- * @param def The command the block is of.
- * @param mode The mode in use, if any.
- * @param block The block.
- */
-export function moreChip(def: CommandDef, mode: ModeSpec | undefined, block: Block): "more" | "less" | undefined {
-  if (exposure(mode, def.id) !== "partial" || !def.partial) return undefined;
-  // a caption is not worth a chip: tapping the block's word adds one
-  const left = def.params.filter((p) => p.type.kind !== "caption" && !def.partial!.includes(p.id));
-  if (!left.length) return undefined;
-  if (block.expanded === true) return "less";
-  return left.every((p) => changed(block, p)) ? undefined : "more";
-}
-
-/**
- * May a new block, or a change to a field, use this? It is what the assistant
- * is held to: the blocks and fields the person can see.
- *
- * @param mode The mode in use, if any.
- * @param kind The kind of block.
- * @param field The id of the field.
- */
-export function allowedField(mode: ModeSpec | undefined, kind: string, field: string): boolean {
-  const how = exposure(mode, kind);
-  if (how === "hidden") return false;
-  const def = commandById(kind);
-  // a caption is only a label for people: the assistant may always write one,
-  // though the block does not offer to
-  const caption = def?.params.find((p) => p.id === field)?.type.kind === "caption";
-  return how === "full" || !def?.partial || def.partial.includes(field) || caption;
+/** Does the mode offer this kind of block? With no mode, every kind is offered. */
+export function offers(mode: ModeSpec | undefined, kind: string): boolean {
+  return mode ? mode.blocks.includes(kind) : true;
 }
 
 /** The kinds of block a mode offers, in the palette's order */
 export function offeredKinds(mode: ModeSpec | undefined): string[] {
-  return COMMANDS.filter((c) => exposure(mode, c.id) !== "hidden").map((c) => c.id);
+  return COMMANDS.filter((c) => offers(mode, c.id)).map((c) => c.id);
 }
 
 /**
- * Every kind of block that a program (or list of blocks) uses which the mode
- * hides
+ * The kinds of block that a program uses and the mode does not offer: they
+ * stay in the program, so the person can be told that the mode does not offer
+ * them.
+ *
+ * @param program The program.
+ * @param mode The mode in use, if any.
  */
-export function hiddenKindsUsed(blocks: Block[], mode: ModeSpec | undefined): string[] {
-  const found = new Set<string>();
-  const visit = (list: Block[]) =>
-    list.forEach((b) => {
-      if (exposure(mode, b.kind) === "hidden") found.add(b.kind);
-      visit(b.inner ?? []);
-    });
-  visit(blocks);
-  return [...found];
+export function hiddenKindsUsed(program: Program, mode: ModeSpec | undefined): string[] {
+  return [...new Set(allBlocks(program).filter((b) => !offers(mode, b.kind)).map((b) => b.kind))];
 }

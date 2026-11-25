@@ -1,43 +1,41 @@
-import { blockOutline } from "./outline";
-import { type BlockLayout, type Measure, type Rect, layoutProgram } from "./layout";
+import { type BlockLayout, type Measure, type Rect, blockOutline, layoutProgram } from "./layout";
 import type { ModeSpec } from "./modes";
-import type { Program } from "./types";
+import type { Program } from "../language/types";
 
 /**
- * Draws a block program as a picture in SVG, for a book or a web page that
- * wants to show the blocks without running the editor. `programToSvg` does it,
- * from the editor's own layout (`layoutProgram`), so that the blocks look as
- * they do in the editor. Everything is in meters of layout until the end, when
- * `scale` turns it into pixels.
+ * Draws a block program as a picture in SVG, to show the blocks without the
+ * interface around them. `programToSvg` does it, from the same layout the
+ * blocks have on screen (`layoutProgram`), so that they look the same.
+ * Everything is in meters of layout until the end, when `scale` turns it into
+ * pixels. It needs no browser.
  */
 
 /**
  * What `programToSvg` needs besides the program. The picture is the blocks as
- * the editor draws them (the same layout, colors and shapes). It needs no
- * screen: the editor's own layout does the work, and the one thing it cannot
- * know, how wide text is, is given as `measure` (scripts/blocks-svg.ts makes
- * one from the editor's font).
+ * they are drawn on screen (the same layout, colors and shapes). It needs no
+ * screen: the layout does the work, and the one thing it cannot know, how wide
+ * text is, is given as `measure`, made from the block font.
  */
 export interface SvgOptions {
-  /** How wide text is, in meters, at the editor's text size */
+  /** How wide text is, in meters, at the block text size */
   measure: Measure;
   /**
    * How wide the blocks may be before a header wraps onto another row, in
-   * meters. Default: the editor's workspace.
+   * meters. Default: the width of the workspace.
    */
   width?: number;
   /**
-   * How much of each block to show, as in the editor (fields a mode hides are
-   * left out). Default: all of it.
+   * The mode in use, which decides whether the eye and power switch show.
+   * Default: no mode, so they show.
    */
   mode?: ModeSpec;
   /**
    * Pixels in the picture for each meter of layout. Default 80, which is about
-   * the size of the blocks in the editor on a laptop.
+   * the size of the blocks on a laptop screen.
    */
   scale?: number;
   /**
-   * The panel the blocks sit on (the caption and stack labels are light, so
+   * The panel the blocks sit on (the caption and script labels are light, so
    * they need a dark one), or false for none
    */
   background?: string | false;
@@ -46,8 +44,8 @@ export interface SvgOptions {
 }
 
 /**
- * The editor's workspace is this wide (its screen less the palette and the 3D
- * view), in meters
+ * The workspace is this wide (the screen less the palette and the 3D view), in
+ * meters
  */
 const WORK_WIDTH = 6.4;
 
@@ -55,14 +53,13 @@ const WORK_WIDTH = 6.4;
 const PAD = 0.3;
 
 /**
- * How many meters wide one em of the editor's text is (its text size 20;
- * measured in the editor, which scales text with the window, so this is good to
- * a few percent): a text's width is its width in ems, in the editor's font,
- * times this. It is also the picture's font size.
+ * How many meters wide one em of block text is (text size 20; measured on
+ * screen, where text scales with the window, so this is good to a few
+ * percent): a text's width is its width in ems, in the block font, times this. It is also the picture's font size.
  */
 export const TEXT = 0.265;
 
-/** The fonts the picture asks for, the editor's own first */
+/** The fonts the picture asks for, the block font first */
 const FONT = "Arimo, 'Liberation Sans', Arial, Helvetica, sans-serif";
 
 /** A number written for SVG: rounded to a thousandth of a meter */
@@ -70,13 +67,20 @@ function n(v: number): string {
   return String(Math.round(v * 1000) / 1000);
 }
 
-/** Text made safe to put in SVG markup or in one of its attributes */
+/**
+ * Text made safe to put in SVG markup or in one of its attributes: the
+ * characters that mean something are written as entities, and the control
+ * characters that XML 1.0 does not allow at all are dropped (tab, newline and
+ * carriage return are allowed).
+ *
+ * @param s The text.
+ */
 function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 /**
- * A color as the editor writes it (#rrggbb, or #rrggbbaa) as an SVG paint
+ * A color as it is written for the screen (#rrggbb, or #rrggbbaa) as an SVG paint
  * attribute, with its opacity if it has one
  *
  * @param kind Which attribute to make: `fill` or `stroke`.
@@ -110,7 +114,7 @@ function rect(r: Rect, b: Box): string {
  * @param r The rectangle to center it in.
  * @param s The text.
  * @param color The color of the text, as `#rrggbb` or `#rrggbbaa`.
- * @param size The editor's text size (20 for most text).
+ * @param size The text size (20 for most text).
  */
 function text(r: Rect, s: string, color: string, size = 20): string {
   return s ? `<text x="${n(r.x + r.w / 2)}" y="${n(r.y + r.h / 2)}" text-anchor="middle" dominant-baseline="central" font-size="${n((TEXT * size) / 20)}" ${paint("fill", color)}>${esc(s)}</text>` : "";
@@ -185,10 +189,6 @@ function drawBlock(b: BlockLayout, out: string[]) {
       case "caption": // a label for people, on its own line above the block
         out.push(text(r, p.text, "#ffffffc0", 16));
         break;
-      // the chip that shows the fields a partly exposed block leaves out
-      case "more":
-        out.push(rect(r, { fill: "#ffffff1f", line: "#ffffff55", lineWidth: 0.015 }), text(r, p.text, "#ffffffd0", 16));
-        break;
       case "fold": // the - / + button
         out.push(rect(r, { fill: "#ffffff2e", line: "#ffffff55", lineWidth: 0.015 }), text(r, p.text, "#ffffff"));
         break;
@@ -199,27 +199,31 @@ function drawBlock(b: BlockLayout, out: string[]) {
 }
 
 /**
- * The program as an SVG document (a string): the blocks laid out as the editor
- * lays them out, drawn on a panel, in a picture as big as what is drawn with a
- * margin around it. An empty program is a picture that says "(no blocks)".
+ * The program as an SVG document (a string): the blocks laid out as they are
+ * on screen, drawn on a panel, in a picture as big as what is drawn with a
+ * margin around it. A program with no blocks is a picture that says "(no blocks)".
  *
- * @param program The blocks to draw.
- * @param o How to draw them (see `SvgOptions`).
+ * @param program The scripts to draw.
+ * @param o How to draw them.
  */
 export function programToSvg(program: Program, o: SvgOptions): string {
   const scale = o.scale ?? 80;
   const layout = layoutProgram(program, { x: 0, y: 0, width: o.width ?? WORK_WIDTH, measure: o.measure, mode: o.mode });
   const body: string[] = [];
-  for (const s of layout.stacks) {
-    body.push(rect(s.button, { fill: "#ffffff2e", line: "#ffffff55", lineWidth: 0.015 }), text(s.button, s.collapsed ? "+" : "−", "#ffffff"));
-    const label = { x: s.header.x + s.button.w + 0.08, y: s.header.y, w: s.header.w - s.button.w - 0.08, h: s.header.h };
-    body.push(text(label, s.label, "#ffffff90", 15));
+  for (const s of layout.scripts) {
+    if (s.button) body.push(rect(s.button, { fill: "#ffffff2e", line: "#ffffff55", lineWidth: 0.015 }), text(s.button, s.collapsed ? "+" : "−", "#ffffff"));
+    // a named script's name and inputs are chips (what is tapped to edit them), with a button to remove it
+    if (s.kind === "editable") {
+      for (const chip of [s.nameChip, s.inputsChip]) body.push(rect(chip.rect, { fill: "#fffffff0", line: "#00000040" }), text(chip.rect, chip.text, "#1f2842", 17));
+      body.push(rect(s.remove, { fill: "#ffffff2e", line: "#ffffff55", lineWidth: 0.015 }), text(s.remove, "×", "#ffffff"));
+    }
+    body.push(text(s.text.rect, s.text.text, "#ffffff90", 15));
     if (s.strip) body.push(rect(s.strip, { fill: "#00000040", line: "#ffffff30" }), text(s.strip, "...", "#ffffffb0"));
   }
   for (const b of layout.blocks) drawBlock(b, body);
 
   // the picture is as big as what is drawn, with a margin
-  const rects = [...layout.blocks.map((b) => b.bounds), ...layout.stacks.flatMap((s) => [s.header, ...(s.strip ? [s.strip] : [])])];
+  const rects = [...layout.blocks.map((b) => b.bounds), ...layout.scripts.flatMap((s) => [s.header, ...(s.strip ? [s.strip] : [])])];
   let x0 = 0;
   let y0 = 0;
   let x1 = 0;
@@ -239,7 +243,7 @@ export function programToSvg(program: Program, o: SvgOptions): string {
   const vw = x1 - x0 + 2 * PAD;
   const vh = y1 - y0 + 2 * PAD;
   const title = o.title ?? "A program made of blocks";
-  const panel = o.background === false ? "" : `<rect x="${n(vx)}" y="${n(vy)}" width="${n(vw)}" height="${n(vh)}" rx="0.15" fill="${o.background ?? "#1b2440"}"/>`;
+  const panel = o.background === false ? "" : `<rect x="${n(vx)}" y="${n(vy)}" width="${n(vw)}" height="${n(vh)}" rx="0.15" fill="${esc(o.background ?? "#1b2440")}"/>`;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(vx)} ${n(vy)} ${n(vw)} ${n(vh)}" width="${Math.round(vw * scale)}" height="${Math.round(vh * scale)}" role="img" font-family="${FONT}">`,
     `<title>${esc(title)}</title>`,
