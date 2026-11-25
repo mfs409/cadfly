@@ -506,6 +506,180 @@ describe("the flat examples", () => {
   });
 });
 
+describe("the examples whose points a repeat makes", () => {
+  /** The area of an outline given by its points as (angle in degrees, distance from the middle), going round: half the sum of r1 * r2 * sin(angle between) */
+  const polarArea = (corners: [number, number][]) => {
+    let sum = 0;
+    corners.forEach(([angle, radius], n) => {
+      const [nextAngle, nextRadius] = corners[(n + 1) % corners.length];
+      sum += 0.5 * radius * nextRadius * Math.sin(((nextAngle - angle + 360) % 360) * (Math.PI / 180));
+    });
+    return sum;
+  };
+
+  test("the gear: one solid, 5 thick, with the area of its teeth and rim less the bore", () => {
+    const r = runProgram(k, exampleById("gear")!.program);
+    expect(r.problem).toBeUndefined();
+    expect(r.shapes.length).toBe(1);
+    const gear = r.combined!;
+    const b = gear.bounds();
+    expect(b.max[2]).toBeCloseTo(5, 3);
+    // no tooth reaches past the outer radius, and some come close to it on every side
+    for (const edge of [b.max[0], b.max[1], -b.min[0], -b.min[1]]) {
+      expect(edge).toBeLessThanOrEqual(20 + 1e-6);
+      expect(edge).toBeGreaterThan(19);
+    }
+    // each tooth is four corners of the outline: where it leaves the rim, its two top corners, and where it meets the rim again
+    const [teeth, outer, root, pitch] = [14, 20, 16, 360 / 14];
+    const outline: [number, number][] = Array.from({ length: teeth }, (_, tooth) => [
+      [tooth * pitch - 0.25 * pitch, root],
+      [tooth * pitch - 0.12 * pitch, outer],
+      [tooth * pitch + 0.12 * pitch, outer],
+      [tooth * pitch + 0.25 * pitch, root],
+    ] as [number, number][]).flat();
+    expect(gear.volume() / 5).toBeCloseTo(polarArea(outline) - disc(4), -1);
+    expect(pieces(gear)).toBe(1);
+  });
+
+  test("the gear gets a tooth for every one that teeth asks for, and stays one solid", () => {
+    for (const teeth of ["8", "30"]) {
+      const p = program("gear");
+      setVariable(p, "teeth", teeth);
+      const r = runProgram(k, p);
+      expect(r.problem).toBeUndefined();
+      expect(pieces(r.combined!)).toBe(1);
+      // more teeth means a rim with more of its width taken by teeth: the area changes, in the right direction and by a sensible amount
+      expect(r.combined!.volume()).toBeGreaterThan(Math.PI * 14 * 14 * 5);
+      expect(r.combined!.volume()).toBeLessThan(Math.PI * 20 * 20 * 5);
+    }
+  });
+
+  test("the star outline: one solid with a point at the top, its tips on the outer circle", () => {
+    const r = runProgram(k, exampleById("star-outline")!.program);
+    expect(r.problem).toBeUndefined();
+    const star = r.combined!;
+    const b = star.bounds();
+    expect(b.max[2]).toBeCloseTo(4, 3);
+    // the first tip points straight up, at the tip radius
+    expect(b.max[1]).toBeCloseTo(20, 3);
+    expect(b.min[0]).toBeCloseTo(-b.max[0], 3);
+    const corners: [number, number][] = Array.from({ length: 5 }, (_, arm) => [
+      [arm * 72 + 90, 20],
+      [arm * 72 + 126, 8],
+    ] as [number, number][]).flat();
+    expect(star.volume() / 4).toBeCloseTo(polarArea(corners), 3);
+    expect(pieces(star)).toBe(1);
+  });
+
+  test("the raindrop: a ball with a cone that just touches it, standing on its point at the bottom", () => {
+    const r = runProgram(k, exampleById("raindrop")!.program);
+    expect(r.problem).toBeUndefined();
+    const drop = r.combined!;
+    const b = drop.bounds();
+    const [radius, sharp] = [12, 60];
+    // the tip is where the cone's side, which touches the ball, meets the axis
+    const tip = radius + radius / Math.cos((sharp * Math.PI) / 180);
+    expect(b.min[2]).toBeCloseTo(0, 3);
+    expect(b.max[2]).toBeCloseTo(tip, 3);
+    expect(b.max[0]).toBeCloseTo(radius, 1);
+    expect(b.min[0]).toBeCloseTo(-radius, 1);
+    // the ball below the touching circle (a cap of the ball), and the cone above it
+    const touch = radius * (1 + Math.cos((sharp * Math.PI) / 180));
+    const below = (Math.PI * touch * touch * (3 * radius - touch)) / 3;
+    const cone = (Math.PI * (radius * Math.sin((sharp * Math.PI) / 180)) ** 2 * (tip - touch)) / 3;
+    // the outline is a polygon of 36 steps, so it is a little under the true shape
+    expect(drop.volume()).toBeLessThan(below + cone);
+    expect(drop.volume()).toBeGreaterThan((below + cone) * 0.99);
+    expect(pieces(drop)).toBe(1);
+  });
+
+  test("the raindrop's tip follows sharp: a larger number is a longer tip", () => {
+    const heights = ["50", "70"].map((sharp) => {
+      const p = program("raindrop");
+      setVariable(p, "sharp", sharp);
+      const r = runProgram(k, p);
+      expect(r.problem).toBeUndefined();
+      return r.combined!.bounds().max[2];
+    });
+    expect(heights[0]).toBeLessThan(heights[1]);
+  });
+
+  describe("the round heart", () => {
+    const heart = () => {
+      const r = runProgram(k, exampleById("round-heart")!.program);
+      expect(r.problem).toBeUndefined();
+      expect(r.shapes.length).toBe(1);
+      return r.combined!;
+    };
+    /** The heart curve's outline at 5 degree steps, in the units of the curve (its area is worked out by the shoelace sum). */
+    const outline = Array.from({ length: 72 }, (_, n) => {
+      const t = (n * 5 * Math.PI) / 180;
+      return [16 * Math.sin(t) ** 3, 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)] as [number, number];
+    });
+    const outlineArea = Math.abs(outline.reduce((sum, [x, y], i) => sum + x * outline[(i + 1) % outline.length][1] - outline[(i + 1) % outline.length][0] * y, 0)) / 2;
+    const [width, thickness, slices] = [40, 22, 8];
+    const unit = width / 32;
+    const degrees = (angle: number) => (angle * Math.PI) / 180;
+
+    test("one solid with its point on the ground, even about both x = 0 and y = 0, as wide and thick as asked", () => {
+      const solid = heart();
+      const b = solid.bounds();
+      expect(b.min[2]).toBeCloseTo(0, 3);
+      expect(b.min[0]).toBeCloseTo(-width / 2, 1);
+      expect(b.max[0]).toBeCloseTo(width / 2, 1);
+      // the stack stops at 84 degrees round its arc, where a slice is a tenth of the full size
+      expect(b.max[1]).toBeCloseTo((thickness / 2) * Math.sin(degrees(84)), 2);
+      expect(b.min[1]).toBeCloseTo(-b.max[1], 3);
+      // the curve is 28.9 high, so the heart is 28.9 units
+      expect(b.max[2]).toBeCloseTo(28.9 * unit, 0);
+      expect(pieces(solid)).toBe(1);
+    });
+
+    test("its volume is that of the stack of slices, whose outlines shrink by the cosine of their angle", () => {
+      // between two sizes the loft is a frustum of similar outlines: height * area * (a * a + a * b + b * b) / 3
+      let expected = 0;
+      for (let slice = 0; slice < 2 * slices; slice++) {
+        const [low, high] = [(slice - slices) * (84 / slices), (slice + 1 - slices) * (84 / slices)];
+        const [a, b] = [Math.cos(degrees(low)), Math.cos(degrees(high))];
+        const height = (thickness / 2) * (Math.sin(degrees(high)) - Math.sin(degrees(low)));
+        expected += (height * outlineArea * unit ** 2 * (a * a + a * b + b * b)) / 3;
+      }
+      expect(heart().volume()).toBeGreaterThan(expected * 0.995);
+      expect(heart().volume()).toBeLessThan(expected * 1.005);
+    });
+
+    test("both faces bulge outward: the area of a cross-section never grows away from the middle", () => {
+      const solid = heart();
+      /** The volume of the part of the heart past this depth, out toward the front. */
+      const beyond = (depth: number) => k.intersect(solid, k.place(k.box(100, 60, 100), { position: [0, depth + 30, 20] })).volume();
+      const depths = [0, 2, 4, 6, 8, 10];
+      const areas = depths.slice(1).map((depth, i) => (beyond(depths[i]) - beyond(depth)) / (depth - depths[i]));
+      for (let i = 1; i < areas.length; i++) expect(areas[i]).toBeLessThanOrEqual(areas[i - 1] * 1.01);
+      // in the middle it is the whole outline
+      expect(areas[0]).toBeGreaterThan(0.95 * outlineArea * unit ** 2 * Math.cos(degrees(2)) ** 2);
+    });
+
+    test("it is thinner toward the point than across the lobes", () => {
+      const solid = heart();
+      const near = (low: number, high: number) => k.intersect(solid, k.place(k.box(100, 100, high - low), { position: [0, 0, (low + high) / 2] })).bounds();
+      const tip = near(0, 1);
+      const middle = near(10, 11);
+      const lobes = near(24, 30);
+      // the thickness falls away from the lobes toward the point, to a thin edge at the point itself
+      expect(tip.max[1]).toBeLessThan(0.35 * lobes.max[1]);
+      expect(tip.max[1]).toBeLessThan(middle.max[1]);
+      expect(middle.max[1]).toBeLessThan(lobes.max[1]);
+    });
+
+    test("it is built quickly, from one outline drawn with a repeat", () => {
+      const started = Date.now();
+      heart();
+      // generous, so that a slow machine does not fail it: it is 20 times what a build takes here
+      expect(Date.now() - started).toBeLessThan(5000);
+    });
+  });
+});
+
 describe("the solid examples", () => {
   const run = (name: string) => runProgram(k, exampleById(name)!.program);
   test("the pyramid is a hull of 5 points, and follows its variables", () => {

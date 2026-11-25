@@ -113,6 +113,92 @@ export const valentineHeart: ExampleSpec = {
 };
 
 /**
+ * The "Star outline" example: a flat star, extruded. A repeat makes two points
+ * for each arm: the tip, and the dip between it and the next tip.
+ */
+export const starOutline: ExampleSpec = {
+  id: "star-outline",
+  name: "Star outline",
+  description: "A repeat makes the star's points: a tip and a dip for each arm, from the arm's angle. Change arms, tip and dip.",
+  build: `
+    set name=arms value=5
+    set name=tip value=20
+    set name=dip value=8
+    set name=thick value=4
+    extrude name=star height=thick
+      polygon
+        repeat times=arms counter=i
+          # the tip of arm number i points this many degrees round, starting at the top
+          point u="tip * cos(i * 360 / arms + 90)" v="tip * sin(i * 360 / arms + 90)"
+          # and the dip is halfway to the next arm
+          point u="dip * cos((i + 0.5) * 360 / arms + 90)" v="dip * sin((i + 0.5) * 360 / arms + 90)"
+  `,
+};
+
+/**
+ * The "Gear" example: a spur gear whose outline is a polygon with its points
+ * made by a repeat, one pass for each tooth. Each tooth is four points: the
+ * corner where it leaves the rim, the two corners of its flat top, and the
+ * corner where it meets the rim again, found from the angle of the tooth.
+ */
+export const gear: ExampleSpec = {
+  id: "gear",
+  name: "Gear",
+  description: "A repeat makes the points of the outline: four for each tooth, from the tooth's angle. Change teeth, outer and depth.",
+  build: `
+    set name=teeth value=14
+    set name=outer value=20
+    set name=depth value=4
+    set name=thick value=5
+    set name=bore value=4
+    # each tooth takes this many degrees, and its root is this far out
+    set name=pitch value="360 / teeth"
+    set name=root value="outer - depth"
+    extrude name=gear height=thick
+      polygon
+        repeat times=teeth counter=i
+          # the middle of tooth number i
+          set name=turn value="i * pitch"
+          point u="root * cos(turn - 0.25 * pitch)" v="root * sin(turn - 0.25 * pitch)"
+          point u="outer * cos(turn - 0.12 * pitch)" v="outer * sin(turn - 0.12 * pitch)"
+          point u="outer * cos(turn + 0.12 * pitch)" v="outer * sin(turn + 0.12 * pitch)"
+          point u="root * cos(turn + 0.25 * pitch)" v="root * sin(turn + 0.25 * pitch)"
+      # the hole for the shaft
+      circle r=bore hole
+  `,
+};
+
+/**
+ * The "Raindrop" example: half the outline of a drop, revolved. A repeat makes
+ * the points around the round bottom, every few degrees, and it ends where a
+ * straight line from the tip just touches the circle, so the tip runs into the
+ * round part without a corner.
+ */
+export const raindrop: ExampleSpec = {
+  id: "raindrop",
+  name: "Raindrop",
+  description: "A repeat makes the points around the bottom of the drop's outline, which is revolved. Change sharp to change the tip.",
+  build: `
+    set name=radius value=12
+    # how far round from the axis the straight side touches the circle: a bigger
+    # number is a longer, sharper tip
+    set name=sharp value=60
+    # the circle's middle is on the axis, a radius up; its tip is where the
+    # straight side from the touching point meets the axis
+    set name=tip value="radius + radius / cos(sharp)"
+    # the circle is drawn from the bottom (-90 degrees) to the touching point
+    set name=last value="90 - sharp"
+    set name=steps value=36
+    revolve name=raindrop
+      polygon
+        repeat times="steps + 1" counter=i
+          set name=angle value="-90 + i * (last + 90) / steps"
+          point u="radius * cos(angle)" v="radius + radius * sin(angle)"
+        point u=0 v=tip
+  `,
+};
+
+/**
  * The "Name plate" example: a plate with a name engraved in it, by a text
  * block marked as a hole.
  */
@@ -285,5 +371,54 @@ export const trayAndLid: ExampleSpec = {
       shell thickness=2 open=top
         box name=tray w=50 d=35 h=15
     box name=lid w="tray_w + 2 * margin" d="tray_d + 2 * margin" h=2 z=tray_h
+  `,
+};
+
+/**
+ * The "Round heart" example: a heart that bulges out on both faces, like a
+ * pillow. Its outline is the classic heart curve, written as a polygon whose
+ * points come from a repeat. The body is a stack of lofts, each blending that
+ * outline at one size into the outline at the next, so that the sizes follow
+ * the arc of a circle from one face to the other. Each outline shrinks toward a
+ * point above the middle of the heart, so the thickness falls away to a thin
+ * edge at the point, while the lobes stay full and round.
+ */
+export const roundHeart: ExampleSpec = {
+  id: "round-heart",
+  name: "Round heart",
+  description: "A repeat draws the heart's outline, and a stack of lofts that shrink toward the lobes puffs it out like a pillow.",
+  build: `
+    set name=width value=40
+    set name=thickness value=22
+    set name=slices value=8
+    # how far up from the middle of the heart each outline shrinks toward, as a
+    # fraction of its height: more makes the point thinner
+    set name=taper_centre value=0.3
+    # the heart curve is 32 wide and 28.9 high, so this is the size of one unit
+    set name=unit value="width / 32"
+    set name=centre value="taper_centre * 28.9 * unit"
+    # each loft goes from one angle to the next across the arc of a circle: its
+    # height is thickness / 2 * sin(angle) and its outline's size is cos(angle),
+    # from -84 degrees on the back to 84 on the front, where the outline is a
+    # tenth of the size; the transform lifts the heart so that its point is on
+    # the ground
+    transform z="14.448 * unit"
+      repeat times="2 * slices" counter=k
+        set name=low value="(k - slices) * 84 / slices"
+        set name=high value="(k + 1 - slices) * 84 / slices"
+        loft name=slice plane=XZ offset="thickness / 2 * sin(low)" height="thickness / 2 * (sin(high) - sin(low))"
+          bottom
+            transform sx="cos(low)" sy="cos(low)" y="(1 - cos(low)) * centre"
+              polygon
+                # a point every 5 degrees round the curve (n counts the points, so
+                # the angle is n * 5), moved down so that the middle of the heart
+                # is at the origin
+                repeat times=72 counter=n
+                  point u="unit * 16 * sin(n * 5) * sin(n * 5) * sin(n * 5)" v="unit * (13 * cos(n * 5) - 5 * cos(n * 10) - 2 * cos(n * 15) - cos(n * 20) + 2.552)"
+          top
+            transform sx="cos(high)" sy="cos(high)" y="(1 - cos(high)) * centre"
+              polygon
+                repeat times=72 counter=n
+                  point u="unit * 16 * sin(n * 5) * sin(n * 5) * sin(n * 5)" v="unit * (13 * cos(n * 5) - 5 * cos(n * 10) - 2 * cos(n * 15) - cos(n * 20) + 2.552)"
   `,
 };
