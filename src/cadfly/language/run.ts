@@ -1,13 +1,15 @@
 import type { Flat, Kernel, Solid } from "../geometry/kernel";
-import { Args, Env, type Overlay, ProgramError, toProblem } from "./env";
-import { MAX_STEPS, commandById } from "./commands";
-import { runOrder } from "./edit";
-import type { Files } from "./files";
-import { type Block, type Problem, type Program, type Shape, isFlat } from "./types";
+import { BlockArgs, Env, type Overlay, type Part, ProgramError, Scope, toProblem } from "./env";
+import { RESERVED } from "../geometry/expr";
+import { MAX_BUILT_BLOCKS, commandById } from "./commands";
+import { allBlocks } from "./program";
+import type { StlFiles } from "./files";
+import { BUILD, type Block, type Problem, type Program, type Shape, isFlat } from "./types";
 
 /**
- * Running a program: building each block, in order, into shapes, and merging
- * what was built into a picture and something to export (`runProgram`).
+ * Running a program: setting the globals, then building the blocks of `build`
+ * (and of the scripts they use) into shapes, and merging what was built into a
+ * picture and something to export (`runProgram`).
  */
 
 /**
@@ -17,7 +19,7 @@ import { type Block, type Problem, type Program, type Shape, isFlat } from "./ty
 export interface ShownShape {
   /** The id of the top-level block that made it */
   id: string;
-  /** What to call it: see `labelOf` */
+  /** What to call it */
   name: string;
   /**
    * What is drawn: the solid, or for a flat shape a thin slab of it lying on
@@ -49,10 +51,21 @@ export interface RunResult {
    */
   shapes: ShownShape[];
   /**
+   * The 3D shapes at the top of `build` whose blocks have their eye shut, in
+   * order: built, but left out of the picture and of `combined`. An export can
+   * ask for them.
+   */
+  hiddenShapes: ShownShape[];
+  /**
    * The solids merged: what an export writes. Null if there are none to show
    * (flat shapes are not exported).
    */
   combined: Solid | null;
+  /**
+   * Only when asked for (`runProgram`'s `withHidden`): the solids merged with
+   * the hidden shapes. Null if there are none, or when not asked for.
+   */
+  combinedWithHidden: Solid | null;
   /** The flat shapes merged, if there are any */
   flat: Flat | null;
   /**
@@ -75,22 +88,23 @@ export interface RunResult {
 const FLAT_THICKNESS = 0.2;
 
 /**
- * Build one block: a shape, a solid or a flat one (or null, for nothing: `set`,
- * a hidden block, and an `if` with nothing in the branch that is taken). Errors
- * name the block that caused them: this throws a ProgramError for anything that
- * goes wrong, including an unknown kind of block, a block that belongs inside
- * another, and a program that has built more than `MAX_STEPS` blocks.
+ * Build one block: a shape, a solid or a flat one (or null, for nothing:
+ * `set!`, and an `if` with nothing in the branch that is taken). A hidden
+ * block's shape is given too. Errors name the block that caused them: this throws a ProgramError
+ * for anything that goes wrong, including an unknown kind of block, a block
+ * that belongs inside another, and a program that has built more than
+ * `MAX_BUILT_BLOCKS` blocks.
  *
  * @param env What the program has built and set so far.
  * @param block The block to build.
  */
-function build(env: Env, block: Block): Shape | null {
+function makeShape(env: Env, block: Block): Shape | null {
   const def = commandById(block.kind);
   if (!def) throw new ProgramError(block.id, `unknown block: ${block.kind}`);
   if (def.piece) throw new ProgramError(block.id, `a ${def.word} block belongs inside another block`);
-  if (++env.steps > MAX_STEPS) throw new ProgramError(block.id, `the program has built more than ${MAX_STEPS} blocks: check how many times it repeats`);
+  if (++env.blocksBuilt > MAX_BUILT_BLOCKS) throw new ProgramError(block.id, `the program has built more than ${MAX_BUILT_BLOCKS} blocks: check how many times it repeats`);
   try {
-    const args = new Args(env, block, def);
+    const args = new BlockArgs(env, block, def);
     if (def.run) {
       def.run(env, args);
       return null;
@@ -104,8 +118,8 @@ function build(env: Env, block: Block): Shape | null {
       else {
         // the counter is its own variable for each pass, and gone afterwards
         for (let pass = 0; pass < loop.times; pass++) {
-          env.scoped(() => {
-            env.vars.set(loop.counter, pass);
+          env.inNewScope(() => {
+            env.scope.set(loop.counter, pass);
             kids.push(...buildAll(env, block.inner ?? []));
           });
         }
@@ -128,13 +142,23 @@ function build(env: Env, block: Block): Shape | null {
       def.moveOverlays(args, env.overlays.slice(overlaysFrom), (o) => added.push(o));
       env.overlays.push(...added);
     }
-    // a hidden block is built like any other (so its problems show), but gives
-    // nothing to what is around it
-    return block.hidden === true ? null : made;
+    return made;
   } catch (e) {
     // errors from the geometry helpers know nothing about blocks
     throw e instanceof ProgramError ? e : new ProgramError(block.id, (e as Error).message);
   }
+}
+
+/**
+ * Build one block, as `makeShape` does, but a hidden block is built like any
+ * other (so its problems show) and gives nothing to what is around it.
+ *
+ * @param env What the program has built and set so far.
+ * @param block The block to build.
+ */
+function build(env: Env, block: Block): Shape | null {
+  const made = makeShape(env, block);
+  return block.hidden === true ? null : made;
 }
 
 /**
@@ -153,9 +177,19 @@ function buildList(env: Env, blocks: Block[], emit: (block: Block, shape: Shape)
  * there. Gives the shapes they made, in order.
  */
 function buildAll(env: Env, blocks: Block[]): Shape[] {
-  return env.scoped(() => {
-    const out: Shape[] = [];
-    buildList(env, blocks, (_block, solid) => out.push(solid));
+  return buildParts(env, blocks).map((p) => p.shape);
+}
+
+/**
+ * Like `buildAll`, and gives what each shape is called as well.
+ *
+ * @param env What the program has built and set so far.
+ * @param blocks The blocks to build.
+ */
+function buildParts(env: Env, blocks: Block[]): Part[] {
+  return env.inNewScope(() => {
+    const out: Part[] = [];
+    buildList(env, blocks, (block, shape) => out.push({ name: labelOf(block), shape }));
     return out;
   });
 }
@@ -165,7 +199,7 @@ function buildAll(env: Env, blocks: Block[]): Shape[] {
  * holder of one), else what kind of block it is
  */
 function labelOf(block: Block): string {
-  if (block.kind === "use") return String(block.args.name ?? "").trim() || "part";
+  if (block.kind === "use") return String(block.args.name ?? "").trim() || "script";
   // an if with an else is not called after what is in its first branch: which
   // branch is built is not what it is
   if (block.kind === "if" && (block.inner ?? []).some((k) => k.kind === "else" && k.inner?.length)) return "if";
@@ -177,21 +211,74 @@ function labelOf(block: Block): string {
   return inside.length === 1 ? labelOf(inside[0]) : block.kind;
 }
 
+/** The id of the first block of the program: what a problem that is not about any block is named after */
+function firstBlockId(program: Program): string {
+  return allBlocks(program)[0]?.id ?? "";
+}
+
 /**
- * Run a program: build each block at the top, in turn (in the order `runOrder`
- * gives). The program stops at the first block that cannot do its job, and says
- * which block that was; the shapes before it are still built, so there is a
- * picture to show. Never throws: what went wrong is in the result's `problem`.
+ * Run the global scripts: each on its own, starting with no variables, so that
+ * a global can use another only from the same script, below the block that
+ * sets it. What they set goes to `env.globals`, which every script sees. Throws
+ * a ProgramError for a block that is not a `set`, for a name that two global
+ * scripts both set, and for a block that uses a variable that another global
+ * script sets.
+ */
+function runGlobals(env: Env, program: Program) {
+  // the first global script to set each name owns it
+  const owner = new Map<string, number>();
+  /** The name a `set` block sets, or nothing for any other block. */
+  const nameOf = (block: Block) => (block.kind === "set" ? new BlockArgs(env, block, commandById("set")!).text("name") : "");
+  program.forEach((script, i) => {
+    if (script.name !== undefined) return;
+    for (const block of script.blocks) if (block.kind === "set" && !owner.has(nameOf(block))) owner.set(nameOf(block), i);
+  });
+  program.forEach((script, i) => {
+    if (script.name !== undefined) return;
+    const own = new Scope();
+    env.inScope(own, () => {
+      for (const block of script.blocks) {
+        if (block.kind !== "set") throw new ProgramError(block.id, `a ${commandById(block.kind)?.word ?? block.kind} block cannot be in a global script (only set blocks can)`);
+        const name = nameOf(block);
+        if (owner.get(name) !== i) throw new ProgramError(block.id, `"${name}" is already set by another global script: a global is set in only one script`);
+        try {
+          build(env, block);
+        } catch (e) {
+          // a value that uses a variable another global script sets: say what to do about it
+          const used = String(block.args.value ?? "").match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+          const other = used.find((v) => !RESERVED.has(v) && !own.has(v) && owner.has(v) && owner.get(v) !== i);
+          if (other !== undefined) throw new ProgramError(block.id, `"${other}" is set in another script, so this block cannot use it: put this block below the block that sets it, in the same script`);
+          throw e;
+        }
+      }
+    });
+    for (const [name, value] of own.entries()) env.globals.set(name, value);
+  });
+}
+
+/**
+ * Run a program. First the global scripts set the variables that everybody
+ * sees. Then the blocks of `build` are built, in turn; a `use` builds a named
+ * script where it is used. The program stops at the first block that cannot do
+ * its job, and says which block that was; the shapes
+ * before it are still built, so there is a picture to show. A named script that
+ * is never used is never run, so a problem in it is not seen. Never throws:
+ * what went wrong is in the result's `problem`.
  *
  * @param kernel The kernel to build with.
- * @param program The blocks to run.
+ * @param program The scripts to run.
  * @param files The STL files the project carries, by name, for import blocks.
+ * @param withHidden Also merge the hidden shapes with the others
+ *                   (`combinedWithHidden`), for an export that includes them.
  */
-export function runProgram(kernel: Kernel, program: Program, files: Files = {}): RunResult {
+export function runProgram(kernel: Kernel, program: Program, files: StlFiles = {}, withHidden = false): RunResult {
   const env = new Env(kernel);
   env.files = files;
   env.buildBlocks = (blocks) => buildAll(env, blocks);
+  env.buildParts = (blocks) => buildParts(env, blocks);
+  for (const script of program) if (script.name !== undefined && script.name !== BUILD && !env.scripts.has(script.name)) env.scripts.set(script.name, script);
   const shapes: ShownShape[] = [];
+  const hiddenShapes: ShownShape[] = [];
   let flatCount = 0;
   let problem: Problem | undefined;
 
@@ -207,8 +294,31 @@ export function runProgram(kernel: Kernel, program: Program, files: Files = {}):
   }
 
   try {
-    buildList(env, runOrder(program), (block, shape) => {
-      if (!isFlat(shape)) return void shapes.push({ id: block.id, name: labelOf(block), solid: shape });
+    runGlobals(env, program);
+    env.scope = env.globals.child();
+    for (const block of program.find((s) => s.name === BUILD)?.blocks ?? []) {
+      // a `use` at the top of build says what its script made, one shape at a time
+      let parts: Part[] | undefined;
+      if (block.kind === "use") env.partsOfUse = (made) => void (parts = made);
+      let shape: Shape | null;
+      try {
+        shape = makeShape(env, block);
+      } finally {
+        env.partsOfUse = undefined;
+      }
+      if (!shape) continue;
+      if (block.hidden === true) {
+        if (!isFlat(shape)) hiddenShapes.push({ id: block.id, name: labelOf(block), solid: shape });
+        continue;
+      }
+      if (parts && !isFlat(shape)) {
+        for (const part of parts) shapes.push({ id: block.id, name: part.name, solid: part.shape as Solid });
+        continue;
+      }
+      if (!isFlat(shape)) {
+        shapes.push({ id: block.id, name: labelOf(block), solid: shape });
+        continue;
+      }
       if (shape.hole) throw new ProgramError(block.id, "a hole cuts a piece out of the pieces beside it: put it in the same block as the piece it cuts, or use subtract");
       // each flat shape is a little thicker than the one before, so that one
       // on top of another is seen on top instead of fighting it for the same
@@ -217,25 +327,28 @@ export function runProgram(kernel: Kernel, program: Program, files: Files = {}):
       const name = labelOf(block);
       showWithPieces(
         { id: block.id, name, solid: kernel.extrudeFlat(shape.flat, FLAT_THICKNESS * lift), flat: shape.flat },
-        (shape.pieces ?? []).map((f, i) => kernel.extrudeFlat(f, FLAT_THICKNESS * (lift + 0.3 + i * 0.3))),
+        (shape.pieces.length > 1 ? shape.pieces : []).map((f, i) => kernel.extrudeFlat(f, FLAT_THICKNESS * (lift + 0.3 + i * 0.3))),
       );
-    });
+    }
   } catch (e) {
-    problem = toProblem(e, program[0]?.id ?? "");
+    problem = toProblem(e, firstBlockId(program));
   }
   // the sketches of hidden extrudes and revolves are drawn too
   for (const o of env.overlays) {
     if (o.kind === "sketch") showWithPieces({ id: o.blockId, name: "sketch", solid: o.solid, preview: true }, o.pieces);
   }
   let combined: Solid | null = null;
+  let combinedWithHidden: Solid | null = null;
   let flat: Flat | null = null;
   try {
     const solids = shapes.filter((s) => !s.flat && !s.preview && !s.piece).map((s) => s.solid);
     combined = solids.length ? solids.reduce((a, b) => kernel.union(a, b)) : null;
+    const everything = withHidden ? [...solids, ...hiddenShapes.map((s) => s.solid)] : [];
+    combinedWithHidden = everything.length ? everything.reduce((a, b) => kernel.union(a, b)) : null;
     const flats = shapes.flatMap((s) => (s.flat ? [s.flat] : []));
     flat = flats.length ? flats.reduce((a, b) => kernel.flatUnion(a, b)) : null;
   } catch (e) {
-    problem ??= { blockId: program[0]?.id ?? "", message: (e as Error).message };
+    problem ??= { blockId: firstBlockId(program), message: (e as Error).message };
   }
-  return { shapes, combined, flat, overlays: env.overlays, hullFaces: Object.fromEntries(env.hullFaces), measurements: Object.fromEntries(env.measured), problem };
+  return { shapes, hiddenShapes, combined, combinedWithHidden, flat, overlays: env.overlays, hullFaces: Object.fromEntries(env.hullFaces), measurements: Object.fromEntries(env.measured), problem };
 }

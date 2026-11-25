@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import { type SketchShape, SketchError, shapeToContour, shapeToContours } from "../src/cadfly/geometry/sketch";
 
+/** Sketch shapes on planes, and their contours. */
+
 test("rect becomes a 4-point contour", () => {
   expect(shapeToContour({ kind: "rect", at: [1, 2], w: 3, h: 4 })).toEqual([
     [1, 2],
@@ -10,10 +12,13 @@ test("rect becomes a 4-point contour", () => {
   ]);
 });
 
-test("a circle is a polygon of 64 points, all on the radius", () => {
+test("a circle is a polygon with many points, all on the radius, that has nearly the area of the circle", () => {
   const pts = shapeToContour({ kind: "circle", center: [5, 5], r: 2 });
-  expect(pts).toHaveLength(64);
+  expect(pts.length).toBeGreaterThanOrEqual(24);
   for (const [x, y] of pts) expect(Math.hypot(x - 5, y - 5)).toBeCloseTo(2);
+  const area = Math.abs(pts.reduce((sum, [x, y], i) => sum + x * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * y, 0)) / 2;
+  expect(area / (Math.PI * 4)).toBeGreaterThan(0.98);
+  expect(area).toBeLessThan(Math.PI * 4);
 });
 
 test("non-positive dimensions are rejected", () => {

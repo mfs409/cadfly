@@ -9,7 +9,7 @@ import type { SketchShape } from "./sketch";
  *
  * `textShapes` turns words into shapes, in any font. The fonts come from files
  * (an `Outliner` reads each letter's outlines out of a font file): the four that
- * come with the app are read from its assets (`installFonts`), and a Google
+ * are bundled are read from the assets (`installFonts`), and a Google
  * font is fetched over the internet when a block asks for one
  * (`installGoogleFont`). Loading takes time but `textShapes` cannot wait, so
  * each font is entered in a registry when it arrives, with a status while it is
@@ -34,7 +34,7 @@ export class FontError extends Error {}
  */
 type Outliner = (text: string, size: number) => Vec2[][][];
 
-/** The fonts that are ready to use, by font id (see `googleFontId`) */
+/** The fonts that are ready to use, by font id */
 const outliners = new Map<string, Outliner>();
 
 /** For a font that is being fetched, or could not be: "loading", or why not */
@@ -83,7 +83,7 @@ export type FontName = (typeof FONT_NAMES)[number];
  * @param hole Mark the shapes as holes, to cut the text out of other shapes
  *             (engraving) instead of adding it.
  * @param font A built-in font (any case), or the name of a Google font, or its
- *             address (see `parseGoogleFont`).
+ *             address.
  */
 export function textShapes(text: string, u: number, v: number, size: number, hole = false, font = "sans"): SketchShape[] {
   if (!(size > 0)) throw new FontError("the size must be more than 0");
@@ -122,7 +122,7 @@ export function builtInFont(font: string): FontName | undefined {
 
 /**
  * The font files, by the name a text block uses (DejaVu's are in the assets
- * with their license; Arimo is the editor's own font)
+ * with their license; Arimo is the font used for block text)
  */
 const FONT_FILES: Record<string, string> = {
   sans: "Arimo-Regular.ttf",
@@ -135,7 +135,7 @@ const FONT_FILES: Record<string, string> = {
 const CURVE_STEPS = 8;
 
 /**
- * Turn a parsed font into a function that outlines text (see `Outliner`).
+ * Turn a parsed font into a function that outlines text.
  *
  * Each letter is placed after the one before, using the font's own widths and
  * its kerning (the pairs that sit closer or further apart, as in "AV"). The
@@ -212,7 +212,7 @@ function outliner(font: Font, weight?: number) {
       // points that repeat the one before
       return contours.map((ring) => ring.filter((p, i) => Math.hypot(p[0] - ring[(i + 1) % ring.length][0], p[1] - ring[(i + 1) % ring.length][1]) > 1e-6)).filter((ring) => ring.length >= 3);
     });
-    // the left of the first letter's ink goes at u = 0 (see `Outliner`)
+    // the left of the first letter's ink goes at u = 0
     const left = Math.min(...letters.flat(2).map((p) => p[0]));
     return Number.isFinite(left) ? letters.map((contours) => contours.map((ring) => ring.map(([x, y]): Vec2 => [x - left, y]))) : letters;
   };
@@ -224,7 +224,7 @@ function installFont(name: string, data: ArrayBuffer) {
 }
 
 /**
- * Read every font file with `read` (a fetch in the app, a file read in tests)
+ * Read every font file with `read` (a fetch in a browser, a file read in a test)
  * and install it; a font that cannot be read is left out, and a text block that
  * asks for it says so. The files are read at the same time.
  *
@@ -282,7 +282,7 @@ async function get(url: string): Promise<Response | undefined> {
  * what is wrong with it itself.
  *
  * @param input A font name, or the address of a font on fonts.google.com or
- *              fonts.googleapis.com (see `parseGoogleFont`).
+ *              fonts.googleapis.com.
  */
 export async function installGoogleFont(input: string): Promise<void> {
   /** Known once the text has been read as a font */

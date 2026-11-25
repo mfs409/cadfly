@@ -1,86 +1,76 @@
 # Instructions for AI coding assistants
 
-This folder is a workspace for making games with JetLag, a 2D game framework for
-the web, written in TypeScript on top of Box2D (physics), PIXI.js (graphics),
-and Howler.js (sound).  JetLag itself is installed as a dependency, in
-`node_modules/jetlag2d`.  The person you're working with is probably learning game
-development from the JetLag book, so your job is to help them make a good game
-*and* to help them understand the code they end up with.
+CADFly is a visual, block-based 3D modeling environment for teaching.
+People build solid shapes by dragging blocks, or by describing a shape to an AI assistant, and export the result as STL.
+It is written in TypeScript.
+The geometry is manifold-3d (WebAssembly), the 3D view is three.js, and the block editor is drawn with JetLag, a 2D game engine that is a dependency in `node_modules/jetlag2d`.
+Do not edit anything in `node_modules`.
+For facts about JetLag's API, read its source in `node_modules/jetlag2d/src/`, and do not rely on memory.
 
-## Where to learn JetLag
+## Layout
 
-Read these before guessing at an API.  JetLag's API is small, but don't rely on
-what you remember about it.
+Everything the app is lives in `src/cadfly/`.
 
-- **The engine source**, `node_modules/jetlag2d/src/jetlag/`, is the final word on
-  what exists and how it behaves.  `node_modules/jetlag2d/src/jetlag.ts` lists
-  everything a game can import.  (If `node_modules` isn't there yet, run
-  `npm install`.)
-- **The tutorial book**: <https://www.cse.lehigh.edu/~spear/jetlag_tutorials/>.
-  Each unit teaches one area (bodies and physics, movement, gestures,
-  collisions, behaviors, timers, data-driven design, scene flow, audio and
-  HUD, endless games and storage, animation and effects, assets), with a
-  complete example game.
-- **The API documentation**: <https://mfs409.github.io/jetlag/>.
+- `language/`: the block language. The program types, running a program, the table of block kinds (`commands/`), variable scopes, the `.cadfly` file format, and the editing operations.
+- `geometry/`: shape-making that knows nothing about blocks. The wrapper around manifold-3d, sketches, sweeps and lofts, finishing (shell, round, fillet), polyhedra, text, STL reading and writing, and the zip writer.
+- `assistant/`: the AI assistant. Block text, the operations a reply may ask for, the prompt, retries, the reply schema, and the Google backend.
+- `ui/`: what is drawn on the page. The block editor and its layout, the 3D view, the chat panel, the overlays and pop-ups, the modes, and the pure rules the editor uses.
+- `app/`: the page's pieces and how they fit together. The project (history, files, loading and saving), the toolbar, settings, the build runner, and the message box.
+- `examples/`: the built-in example programs, written as block text.
+- The top level of `src/cadfly/` holds the entry point, the worker that builds shapes off the page's thread, and small modules for addresses, downloads, and the browser's language-model support.
 
-## How this workspace is organized
+Outside `src/`:
 
-- The engine is a dependency, so it isn't part of the project.  Games import it
-  with `import { ... } from "jetlag2d"`.  Don't edit anything in `node_modules`.
-  If something seems impossible without changing the engine, say so and suggest
-  a workaround instead.  The engine's version is pinned in `package.json`; don't
-  change it unless you're explicitly asked to.
-- Each game lives in its own folder, `src/<name>/`, with a `<name>.ts` and a
-  `<name>.html` file.  Make new games with `npm run create`, not by hand.
-- Assets (images, sounds, fonts) go in the game's own `src/<name>/assets/`
-  folder.  Every asset a game uses must also be listed in its `Config`'s
-  `resources`.  (A game that loads its assets from a CDN instead sets
-  `resources.cdn`.)
-- `npm run serve <name>` serves a game with automatic reloading (leave the
-  name out to be asked which one).  `npm run check` type-checks all of the
-  code; run it after every change.
+- `tests/` has the tests, and `tests/README.md` says what they cover.
+- `eval/` measures how well a model uses the assistant, and `eval/README.md` says how.
+- `scripts/` has the script that makes the tests badge.
 
-## How JetLag games are written
+## Commands
 
-- A level is a `builder` function passed to `stage.switchTo()` (or to
-  `initializeAndLaunch()` for the first one).  Switching levels throws away the
-  whole world, keyboard handlers, timers, and score, so any data that has to
-  survive goes in `stage.storage` (level, session, or persistent).
-- Everything on screen is an `Actor`, built from an `appearance` (one component,
-  or an array drawn in order), a `rigidBody` (`BoxBody`, `CircleBody`, or
-  `PolygonBody`), and optionally `behaviors` and a `movement`.  An actor with no
-  behaviors doesn't collide with anything.
-- The world is measured in meters, with y increasing downward.  Most games show
-  16 by 9 meters at a time.
-- Rules are written as functions: `stage.score.addWinCondition(() => ...)`,
-  `addLoseCondition`, `TimedEvent`s, `TextSprite`s whose text is a function.
-  Prefer these over polling in `stage.world.repeatEvents` when they fit.
-- Keep each level's code readable top to bottom: the setup, then the actors,
-  then the rules.  Pull repeated actor-making code into small helper functions
-  with good names, and put layouts, recipes, and other tables in data (arrays
-  and objects) rather than in long runs of code.
-- `hitBoxes = true` in `Config`, plus `DebugToggle.enable()` at the top of each
-  builder, lets the player press `b` to see every actor's physical outline. Keep
-  it on while developing.
-- If the book's `common.ts` helpers are in the project (`boundingBox`,
-  `heroBehaviors`, `endScreen`, `switchToLevel`/`nextLevel`/`restartLevel`, and
-  so on), use them instead of rewriting them.
+- `npm start` serves the app and rebuilds as you edit.
+- `npm run build` builds the app into `dist/cadfly`.
+- `npm run check` type-checks the app, and `npm run check:tests` type-checks everything, including tests and eval.
+- `npm test` runs the whole suite, which takes about half a minute on a machine with several cores. While working, run one file: `npx vitest run tests/edit.test.ts`.
+- `npm run coverage` runs the suite with a coverage report and refreshes the tests badge.
+- `npm run eval -- <model>` and `npm run report` are the evaluation. They need a model, and are not part of `npm test`.
 
-## Working with a learner
+## How programs work
 
-- **Explain what you changed and why**, in terms of JetLag's ideas (which
-  behavior, which body type, which callback), and point to the part of the book
-  that covers it when you can.  Keep changes small enough to read.
-- **Don't invent APIs.**  If you aren't sure a method or option exists, check
-  `node_modules/jetlag2d/src/` first.  Say when you're unsure.
-- **Numbers that decide how a game feels are the person's call.**  Speeds, jump
-  heights, timers, spawn rates, damage, prices: pick a reasonable first value,
-  say that it's a guess, and suggest what to watch for while play-testing.
-  Don't present a tuning value as correct.
-- **Gameplay and art have to fit each other.**  When adding art, keep hitboxes,
-  sizes, and readability in step with the gameplay (for example, an enemy's
-  attack should be readable from its animation before it lands). Prototyping
-  with plain, labeled shapes and adding art later is a good default.
-- **Boilerplate is fine to write** (animation tables, key bindings, menus,
-  repeated actor setup), but keep it tidy, so the parts that matter stay easy to
-  find.
+- A program is a list of scripts. Each script has an id, an optional name and inputs, and a list of blocks.
+- `build` is a required, named script. It runs by itself, and it is the only source of shapes.
+- A script with no name is a global script, and it may hold only `set` blocks.
+- A script with a name is like a function. A `use` block runs it with inputs, in a fresh scope that sees the globals.
+- Scoping is lexical. A script sees its own variables and the globals, and never its caller's.
+- A polygon's points, a solid's vertices and a sweep's path are lists of points.
+  A `repeat`, `if` (with its `else`) or `set` inside such a list makes points from a formula, so what may go inside a `repeat` depends on where the `repeat` is: `accepts` takes the kind of point list as its third argument.
+- Editing operations never change a program in place. They return a fresh copy, even when nothing changed.
+- A mode says which kinds of block the palette offers, whether blocks have the eye and power switches, and whether scripts are available.
+  A mode never changes what a program builds, and it never hides what is already there.
+- The built-in examples are block text with stable ids, read into frozen programs.
+  Tests use them as fixtures, so copy one (`structuredClone`) before changing it.
+
+## Style
+
+- Every function, constant and exported symbol gets a doc comment, in plain full sentences, wrapped at about 80 columns. Do not just restate the name.
+- A file's header says what the file is for and how it behaves. It never names another file, folder or module, and never says who uses it.
+- Do not write "see `x`" comments. They go stale. Say the thing where it is needed.
+- Prefer names that say what happens (`moveIntoNewHolder`) over short or clever ones.
+- The words are "script" (not define, part or function) and "example" (not demo).
+- In Markdown, put one sentence on each line, and do not wrap a sentence.
+- In tests, a cast that hides a type (`as never`, `as unknown as T`, `unknown[]`, `any`) needs a `// cast: why` comment on that line or the line before. `tests/hygiene.test.ts` enforces this.
+
+## Testing
+
+- Add or update tests for every behavior you change, and keep them honest. A test that works out its expected value the way the code does proves nothing.
+- Use the real geometry kernel for anything geometric. Never mock it.
+- Do not assert on elapsed time, and avoid pinning exact message wording or the number of examples.
+- Before saying a change is done, run both type checks and the test files that touch it. Run the whole suite before finishing a larger change.
+- After renames in tests, run the tests and do not rely on `tsc` alone, because a narrowed `"x" in y` check can silently become `never`.
+- Parts of the page that need a browser are checked by hand.
+  Opening the app with `?test=1` puts its parts on `window.__cadfly`.
+
+## Working with the owner
+
+- Explain what you changed and why, in the project's own terms, and keep changes small enough to read.
+- Do not invent facts about the code, the engine or the libraries. Say when you are unsure, and check the source.
+- Do not commit, push or delete files unless asked.

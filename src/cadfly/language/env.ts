@@ -1,8 +1,18 @@
 import { ExprError, RESERVED, evaluateExpr } from "../geometry/expr";
-import type { Kernel, Solid } from "../geometry/kernel";
+import type { Kernel, Solid, Vec3 } from "../geometry/kernel";
 import type { CommandDef } from "./commands";
-import type { Files } from "./files";
-import type { Block, Problem, Shape } from "./types";
+import type { StlFiles } from "./files";
+import type { Block, Problem, Script, Shape } from "./types";
+
+/**
+ * What a running program carries with it. `Env` holds the variables and
+ * scripts, the project's files, what has been found to draw, and the geometry
+ * kernel. `Scope` is a chain of variable tables, so that a block that holds
+ * others can set variables of its own. `BlockArgs` reads the fields of the
+ * block that is running. This file also has the error that stops a run, the
+ * rules for names and lists in fields, and the conversion of any failure into a
+ * problem the editor can show.
+ */
 
 /**
  * What the running program has to show in the 3D view besides its shapes: a dot
@@ -11,9 +21,9 @@ import type { Block, Problem, Shape } from "./types";
  */
 export type Overlay =
   /** A corner of a solid: where it is in the world, and its number */
-  | { kind: "point"; at: [number, number, number]; label: string }
+  | { kind: "point"; at: Vec3; label: string }
   /** A face of a solid: the block it comes from, its corners, and its label */
-  | { kind: "face"; blockId: string; ring: [number, number, number][]; label: string }
+  | { kind: "face"; blockId: string; ring: Vec3[]; label: string }
   /**
    * The sketch of an extrude or revolve whose eye is shut: a thin slab on the
    * plane it was drawn on, shown in place of the 3D shape
@@ -25,13 +35,12 @@ export type Overlay =
     /** The slab for the whole sketch */
     solid: Solid;
     /**
-     * One thin slab for each piece the sketch is made of (see
-     * `FlatPiece.pieces`)
+     * One thin slab for each piece the sketch is made of
      */
     pieces: Solid[];
   };
 
-/** A problem in one block of the program, which the editor marks */
+/** A problem in one block of the program */
 export class ProgramError extends Error {
   /**
    * @param blockId The id of the block that the problem is with.
@@ -46,39 +55,136 @@ export class ProgramError extends Error {
 export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
- * A part made with `define`: the block that holds its shapes, and the names of
- * its inputs
+ * Split "a, max(1, 2), c" at the commas that are not inside brackets (an empty
+ * text is no values at all)
  */
-export interface Part {
-  /** The `define` block, which holds the shapes the part is built from */
-  block: Block;
-  /** The names of the part's inputs, in order: the variables a `use` sets */
-  inputs: string[];
+export function splitValues(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "(") depth++;
+    else if (text[i] === ")") depth--;
+    else if (text[i] === "," && depth === 0) {
+      out.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start).trim());
+  return out.length === 1 && out[0] === "" ? [] : out;
 }
 
 /**
- * What a running program knows: its variables and parts, the project's files,
+ * The names in the `inputs` of a script: "w, h". Throws an Error, in words that
+ * can be shown, for a text that is not a name, a reserved word, or a name used
+ * twice.
+ */
+export function inputNames(text: string): string[] {
+  const names = splitValues(text);
+  names.forEach((n) => {
+    if (!VARIABLE_NAME.test(n)) throw new Error(`"${n}" is not a name: use letters, digits and _, starting with a letter, separated by commas`);
+    if (RESERVED.has(n)) throw new Error(`"${n}" cannot be an input name`);
+  });
+  if (new Set(names).size !== names.length) throw new Error("an input name is used twice");
+  return names;
+}
+
+/**
+ * The variables that can be seen at one point of a run, by name, with their
+ * numbers. A scope may have a parent, and then it sees the parent's variables
+ * too (and the parent's parent's, and so on). Setting a variable only ever
+ * writes this scope, never the parent's, so a block's `set` is gone when its
+ * scope ends and an inner `set` of an outer name hides it instead of changing
+ * it.
+ */
+export class Scope {
+  /** The variables set in this scope itself */
+  private readonly values = new Map<string, number>();
+
+  /**
+   * @param parent The scope that this one sees through, if it has one.
+   */
+  constructor(private readonly parent?: Scope) { }
+
+  /** The value of a variable, from this scope or else the nearest one up the chain that has it; undefined if there is none */
+  get(name: string): number | undefined {
+    return this.values.get(name) ?? this.parent?.get(name);
+  }
+
+  /** Is there a variable of this name in this scope or any scope above it? */
+  has(name: string): boolean {
+    return this.values.has(name) || (this.parent?.has(name) ?? false);
+  }
+
+  /** Set a variable in this scope (not in the parent) */
+  set(name: string, value: number): void {
+    this.values.set(name, value);
+  }
+
+  /** A new scope that sees this one's variables, and is empty of its own */
+  child(): Scope {
+    return new Scope(this);
+  }
+
+  /** The variables set in this scope itself, not those of its parents */
+  entries(): IterableIterator<[string, number]> {
+    return this.values.entries();
+  }
+}
+
+/** A shape that a list of blocks built, with what to call it */
+export interface Part {
+  /** What the block that made it calls it */
+  name: string;
+  /** The shape */
+  shape: Shape;
+}
+
+/**
+ * What a running program knows: its variables and scripts, the project's files,
  * what it has found to show, and the geometry kernel. A block that holds other
- * blocks gets variables of its own (see `scoped`), so a `set` inside it does
- * not leak out.
+ * blocks gets variables of its own, so a `set` inside it does not leak out.
  */
 export class Env {
-  /** The variables, by name, with their values now */
-  vars = new Map<string, number>();
-  /** The parts defined so far (and visible here), by name */
-  parts = new Map<string, Part>();
+  /**
+   * The variables in scope at this point of the run (name to number): `set`
+   * writes it, and every number field is worked out against it. It changes as
+   * the run enters and leaves blocks that hold others.
+   */
+  scope = new Scope();
+  /**
+   * The variables that every script sees: what the global scripts set. A `use`
+   * starts its script from a child of this (and nothing else of the caller).
+   */
+  globals = new Scope();
+  /**
+   * The named scripts that a `use` can run (all of them, from the start; not
+   * `build`), by name
+   */
+  scripts = new Map<string, Script>();
   /** The project's STL files, by name */
-  files: Files = {};
+  files: StlFiles = {};
   /**
    * The parts built from the project's files so far, by file name (an import
    * inside a loop reads its file once)
    */
   fileSolids = new Map<string, Solid>();
   /**
-   * Builds a list of blocks into shapes, in a scope of its own: how a part
-   * builds what it holds (set by the runner)
+   * Builds a list of blocks into shapes, in a scope of its own: how a script
+   * builds what it holds
    */
   buildBlocks: (blocks: Block[]) => Shape[] = () => [];
+  /**
+   * Builds a list of blocks like `buildBlocks`, and says what each shape is
+   * called
+   */
+  buildParts: (blocks: Block[]) => Part[] = () => [];
+  /**
+   * Set only while the `use` that is at the top of `build` is being built: it
+   * is told the shapes that the script made, one by one, so that they can be
+   * shown (and exported) as parts instead of as the one shape they merge into.
+   */
+  partsOfUse?: (parts: Part[]) => void;
   /**
    * What each measure block found the last time it ran (by block id): the
    * variables it set, for showing
@@ -88,7 +194,7 @@ export class Env {
    * What to draw in the 3D view besides the shapes: the corners of a solid (a
    * dot and its number) and its faces (a translucent polygon), where they are
    * in the world as far as the blocks around them have moved them (a transform
-   * moves what its contents made; see `moveOverlays`). A block hidden by its
+   * moves what its contents made). A block hidden by its
    * eye takes what it made with it.
    */
   overlays: Overlay[] = [];
@@ -98,43 +204,60 @@ export class Env {
    */
   hullFaces = new Map<string, number[][]>();
   /**
-   * How many parts are being built inside one another right now (a part that
-   * uses itself is stopped at a limit)
+   * How many `use` blocks are running right now, one inside another. A script
+   * that uses itself would never stop, so a `use` is refused at
+   * `MAX_SCRIPT_DEPTH`.
    */
-  depth = 0;
+  useDepth = 0;
   /**
-   * How many blocks have been built so far, counting every pass of a loop (a
-   * loop that never ends is stopped)
+   * How many blocks have been built in the whole run, counting every pass of a
+   * loop. A loop that never ends is stopped at `MAX_BUILT_BLOCKS`.
    */
-  steps = 0;
+  blocksBuilt = 0;
 
   /**
+   * Construct the environment
+   *
    * @param kernel The geometry kernel that the blocks build their shapes with.
    */
   constructor(readonly kernel: Kernel) { }
 
   /**
-   * Run `fn` with a copy of the variables and parts, then put the old ones
-   * back (also if `fn` throws). Gives what `fn` gives.
+   * Run `fn` in a new scope: it starts with every variable in scope now, and
+   * anything it sets is forgotten when it ends (also if `fn` throws). Gives
+   * what `fn` gives.
    */
-  scoped<T>(fn: () => T): T {
-    const { vars, parts } = this;
-    this.vars = new Map(vars);
-    this.parts = new Map(parts);
+  inNewScope<T>(fn: () => T): T {
+    return this.inScope(this.scope.child(), fn);
+  }
+
+  /**
+   * Run `fn` with `scope` as the variables in scope, then put the old scope
+   * back (also if `fn` throws). Gives what `fn` gives.
+   *
+   * @param scope The scope to run in. The caller makes it, from a parent of its
+   *              choosing (a `use` starts from the globals, not from the scope
+   *              of the block that uses it).
+   * @param fn What to run.
+   */
+  inScope<T>(scope: Scope, fn: () => T): T {
+    const old = this.scope;
+    this.scope = scope;
     try {
       return fn();
     } finally {
-      this.vars = vars;
-      this.parts = parts;
+      this.scope = old;
     }
   }
 }
 
 /**
- * Reads the fields of the block that is running, and says what is wrong with
- * them
+ * The fields of one block that is running. A field is read as text, a number,
+ * a yes/no or a name (falling back to the command's default when the block
+ * has no value for it), and a field that is wrong stops the program with a
+ * message that names the block and the field.
  */
-export class Args {
+export class BlockArgs {
   /**
    * @param env What the program knows (the variables to work expressions out
    *            with, in particular).
@@ -197,7 +320,7 @@ export class Args {
    */
   private evaluate(id: string, want: "number" | "truth"): number {
     try {
-      return evaluateExpr(String(this.raw(id)), this.env.vars, want);
+      return evaluateExpr(String(this.raw(id)), this.env.scope, want);
     } catch (e) {
       if (e instanceof ExprError) this.fail(id, e.message);
       throw e;
@@ -220,8 +343,8 @@ export class Args {
 
   /**
    * A name made of letters, digits and _, starting with a letter: for
-   * variables, parts and their inputs. It may not be one of the words that mean
-   * something in an expression (see `RESERVED`).
+   * variables, scripts and their inputs. It may not be one of the words that
+   * mean something in an expression.
    */
   variableName(id: string): string {
     const name = this.text(id);

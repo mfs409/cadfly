@@ -33,15 +33,26 @@
  *
  * A value is either a number or a yes/no (a comparison, `true`, `false`, or
  * `and`, `or` or `not` of those).  `+` needs numbers. `and` needs yes/no
- * values.  A field wants one kind or the other (see `evaluateExpr`). The
+ * values.  A field wants one kind or the other. The
  * grammar does not say which is which: the reader checks that as it goes.
  */
 
 /**
- * Values for the names an expression may use.  A Map can be used as a
- * ReadonlyMap
+ * Anything that can say what value a name has: a `Map`, or a `Scope`, which holds the
+ * variables of a running program. Only `get` and `has` are used.
  */
-export type Vars = ReadonlyMap<string, number> | Readonly<Record<string, number>>;
+export interface VarLookup {
+  /** The value of a name, or undefined if there is none */
+  get(name: string): number | undefined;
+  /** Is there a value for this name? */
+  has(name: string): boolean;
+}
+
+/**
+ * Values for the names an expression may use: something that looks names up,
+ * or a plain object of names and numbers.
+ */
+export type Vars = VarLookup | Readonly<Record<string, number>>;
 
 /** Why an expression could not be evaluated, in words a person can act on */
 export class ExprError extends Error {}
@@ -51,7 +62,9 @@ export class ExprError extends Error {}
  * properties count, so `constructor` and `toString` are not names.
  */
 function lookup(vars: Vars, name: string): number | undefined {
-  if (vars instanceof Map) return vars.get(name);
+  // a plain object of numbers has no function-valued properties, so a `get`
+  // function means it is something that looks names up
+  if (typeof (vars as Partial<VarLookup>).get === "function") return (vars as VarLookup).get(name);
   return Object.hasOwn(vars, name) ? (vars as Readonly<Record<string, number>>)[name] : undefined;
 }
 
@@ -89,7 +102,7 @@ const FUNCTIONS: Record<string, { min: number; max: number; run: (a: number[]) =
 export const RESERVED = new Set(["and", "or", "not", "true", "false", "pi", ...Object.keys(FUNCTIONS)]);
 
 /**
- * Evaluator for the simple grammar defined at the top of this file.
+ * Evaluator for the simple grammar of expressions.
  *
  * Throws ExprError, with a readable reason, for anything incomplete or invalid
  * (including division by zero), and for a number where a yes/no is wanted or

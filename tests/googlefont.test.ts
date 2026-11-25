@@ -3,6 +3,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { builtInFont, fontStatus, installGoogleFont, textShapes } from "../src/cadfly/geometry/fonts";
 import { GoogleFontError, chooseFace, googleFontId, parseFaces, parseGoogleFont } from "../src/cadfly/geometry/googlefont";
 
+/** Finding and fetching Google fonts for the text block. */
+
 describe("which Google font is meant", () => {
   test("a name, with or without a weight", () => {
     expect(parseGoogleFont("Pacifico")).toEqual({ family: "Pacifico", weight: 400, italic: false });

@@ -1,15 +1,28 @@
 import type { Flat, Solid } from "../geometry/kernel";
 
 /**
- * One block of a program: a command with the values in its fields. A block may
- * hold more blocks (a "C-shaped" block such as extrude, which holds its
- * sketch).
+ * The types that define a block program: `Block`, `Script` (a column of blocks:
+ * `build`, a function, or a group of globals), `Program` (a list of scripts),
+ * `Param`, `Shape` and the other types the rest of the language is written in.
+ */
+
+/** A place in the workspace, in meters from its top left */
+export interface Point {
+  /** How far across, from the left */
+  x: number;
+  /** How far down, from the top */
+  y: number;
+}
+
+/**
+ * A block of a program holds a command and the values in its fields. A block may
+ * hold more blocks (e.g., "extrude").
  */
 export interface Block {
-  /** Unique within the program; the editor uses it to point at a block */
+  /** Unique within the program; it is how a block is pointed at */
   id: string;
 
-  /** Which command this is (see commands.ts) */
+  /** Which command this is */
   kind: string;
 
   /**
@@ -20,10 +33,9 @@ export interface Block {
   args: Record<string, string | boolean>;
 
   /**
-   * The blocks held inside this one, in order, for a block that holds others
-   * (the sketch inside an extrude, the shapes inside a union, an else inside an
-   * if). Absent for a block that holds nothing, and for one that holds others
-   * but has none yet.
+   * The blocks held inside this one, in order, for a block that holds others.
+   * Absent for a block that holds nothing, and for one that holds others but
+   * has none yet.
    */
   inner?: Block[];
 
@@ -36,42 +48,93 @@ export interface Block {
   /**
    * The power switch of a block that changes what is inside it (transform,
    * round, fillet, ...): while true it does nothing, and the shapes inside it
-   * pass through as they were. (`hidden` hides the result, the shapes inside
-   * with it.)
+   * pass through as they were.
    */
   disabled?: boolean;
 
+  /** Should this block display just its header, or the full block? */
+  collapsed?: boolean;
+}
+
+/** The name of the script that every program has, and that runs by itself */
+export const BUILD = "build";
+
+/**
+ * A column of blocks that connect one to the next, and run one after another,
+ * from the first to the last. There are three kinds of script, told apart by
+ * `name`:
+ *
+ * - A *global script* has no name and can only hold `set` blocks.  These define
+ *   global variables.  They must have at least one block.
+ * - A *named script* has a `name` and (optionally) `inputs`. It is a function
+ *   that is invoked via a `use` block. It may hold any legal top-level block,
+ *   and it can be empty.
+ * - `build` is the named script called "build". Every program has exactly one.
+ *   It has no inputs, it cannot be removed (though it may be empty), and it
+ *   runs by itself.
+ */
+export interface Script {
   /**
-   * A partly exposed block (see modes.ts) shows all of its fields while this is
-   * true.
+   * Unique among the scripts of a program (s1, s2, ...), and never changes.
+   * Unlike the name, which may be edited, or absent, and which a person reads,
+   * the id is only for pointing at the script: it is how an operation says
+   * which script it means, and it stays right when
+   * other scripts are added, removed or moved. Blocks have their own ids (b1,
+   * b2, ...), and the two do not share a namespace.
    */
-  expanded?: boolean;
+  id: string;
 
   /**
-   * The editor shows only the header of a block that holds others; it makes no
-   * difference to what the program builds
+   * What the script is called (no name means a global script). Names
+   * are unique in a program, and are made like variable names.
    */
+  name?: string;
+
+  /**
+   * The names of the inputs of a named script, in order, as text: "w, h". Each
+   * is a variable inside the script, set by the `use` that runs it. Never set
+   * for a global script or for `build`.
+   */
+  inputs?: string;
+
+  /**
+   * The top-left coordinate of the script on the workspace, in meters from the
+   * workspace's top left. When it is absent, the script is placed for you:
+   * below the script before it in the program's list (the first one goes at the
+   * top left). It is optional because whoever makes a script without knowing
+   * coordinates (the "new script" button, `addScript`) cannot say where it goes:
+   * only the drawing of the scripts knows how tall the others are.
+   */
+  at?: Point;
+
+  /** Should the details of this script be hidden? */
   collapsed?: boolean;
 
   /**
-   * Top-level blocks only. A block with `at` starts a stack that floats at that
-   * place in the editor (meters, from the workspace's top left); the blocks
-   * after it with no `at` are the rest of that stack. With no `at` anywhere,
-   * the program is one stack.
+   * The blocks, from top to bottom. A global script has at least one; a named
+   * script may have none.
    */
-  at?: { x: number; y: number };
-
-  /**
-   * The first block of a stack only: the editor shows just that block and a
-   * strip standing for the rest
-   */
-  stackCollapsed?: boolean;
+  blocks: Block[];
 }
 
-/** A block program is a list of blocks */
-export type Program = Block[];
+/**
+ * A block program is a list of scripts
+ *
+ * What happens when it runs:
+ * 1. The global scripts run, each on its own, starting with no variables. What
+ *    they set is the variables that every script can see (the globals). A
+ *    global may use another global only from the same script, below the block
+ *    that sets it. Two global scripts may not set the same name.
+ * 2. `build` runs, seeing the globals. A `set` inside any named script gives a
+ *    variable that only that script (and the blocks inside it) can see.
+ * 3. A `use` block runs the named script it names, which sees the globals, its
+ *    own inputs and its own variables, and nothing of the script that used it.
+ *
+ * A program with nothing in it is a single, empty `build` script.
+ */
+export type Program = Script[];
 
-/** The group a command belongs to / a tab of the editor's palette */
+/** The group a command belongs to / a tab of the palette */
 export type Category = "code" | "shapes" | "sketch" | "place" | "combine";
 
 /** What kind of thing a block's field holds */
@@ -124,34 +187,36 @@ export interface Param {
 
 /** Why the program stopped, and where */
 export interface Problem {
-  /** The block the problem is with, which the editor marks in red */
+  /** The block the problem is with, which is marked in red */
   blockId: string;
-  /** What is wrong, in words a person can act on */
+  /** Text for an error message */
   message: string;
 }
 
 /**
- * What a block can build: a solid (3D), or a flat shape (2D, in its own u,v
- * plane). A flat shape may be marked `hole`: it is then cut out of the flat
- * shapes beside it when they are merged, and is not a shape of its own.
+ * A flat shape: 2D, in its own u,v plane. A block like rectangle or circle
+ * builds one, and a block like extrude or revolve turns one into a solid.
  */
 export interface FlatPiece {
-  /** Tells a flat shape from a solid (see `isFlat`) */
+  /** Tells a flat shape from a solid */
   kind: "flat";
   /** The shape itself */
   flat: Flat;
   /** Is it a hole, to be cut out of the flat shapes beside it */
   hole?: boolean;
   /**
-   * The pieces it was put together from, lowest first (a rectangle with a
-   * circle in the middle: two), when there are several: so the view can draw
-   * each one's outline, which the joined shape does not show. Absent when the
-   * shape is one piece.
+   * The shapes that were put together to make `flat`, lowest first (a
+   * rectangle with a circle in the middle: two), so the view can draw each
+   * one's outline, which the joined shape does not show. Always has at least
+   * one entry: when `flat` is a single piece, the list is just `[flat]`.
    */
-  pieces?: Flat[];
+  pieces: Flat[];
 }
 
-/** Anything a block can build: a solid, or a flat shape */
+/**
+ * What a block can build: a solid (3D), or a flat shape (2D, in its own u,v
+ * plane)
+ */
 export type Shape = Solid | FlatPiece;
 
 /** Is this shape a flat one (and not a solid)? */

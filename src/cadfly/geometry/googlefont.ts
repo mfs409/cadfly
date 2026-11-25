@@ -6,8 +6,8 @@
  *
  * Getting the font is in two parts. This file works out which font is meant
  * (`parseGoogleFont`) and which of a family's files is closest to what was
- * asked for (`parseFaces`, `chooseFace`). `fonts.ts` fetches the files from the
- * google/fonts repository and registers the font.
+ * asked for (`parseFaces`, `chooseFace`). The files are fetched from the
+ * google/fonts repository when the font is loaded.
  */
 
 /** Why a Google font cannot be used, in words a person can act on */
@@ -60,6 +60,7 @@ export function googleFontId(f: GoogleFont): string {
  */
 export function parseGoogleFont(input: string): GoogleFont {
   const text = input.trim();
+  /** Stop with a message that says what to type instead. */
   const fail = (): never => {
     throw new GoogleFontError(`I do not know which Google font "${text.slice(0, 60)}" is: type its name (Pacifico, Open Sans 700) or paste its address from fonts.google.com`);
   };

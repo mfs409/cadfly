@@ -1,0 +1,10 @@
+// Used only by `npm run eval` and `npm run report`, to run them with tsx.
+// Plain Node cannot import `manifold-3d` by name (the package declares no main entry), so it is pointed at the file.
+{
+  "extends": "./tsconfig.tests.json",
+  "compilerOptions": {
+    "paths": {
+      "manifold-3d": ["./node_modules/manifold-3d/manifold.js"]
+    }
+  }
+}

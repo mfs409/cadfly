@@ -1,3 +1,5 @@
+// Type-checks src/, tests/, eval/ and scripts/ together (`npm run check:tests`). It emits nothing, and unused names are allowed.
+// `paths` is emptied so that manifold-3d resolves as vitest resolves it.
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {

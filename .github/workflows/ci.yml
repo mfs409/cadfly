@@ -1,0 +1,30 @@
+# Checks a pull request before it can be merged: the same checks and build
+# that the deploy workflow runs on main, without publishing anything.
+name: Check pull request
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request replaces a check that is still running
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check && npm run check:tests && npm test
+      # the site must still build
+      - run: npm run build

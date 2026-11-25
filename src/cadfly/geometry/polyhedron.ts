@@ -21,7 +21,7 @@ export class PolyhedronError extends Error {
   /**
    * @param message What is wrong.
    * @param faces The faces (numbered from 1) the problem is about, if it is
-   *              about some, so that the editor can point at them. Empty if it
+   *              about some, so that they can be pointed at. Empty if it
    *              is about the solid as a whole.
    */
   constructor(message: string, readonly faces: number[] = []) {
@@ -61,8 +61,8 @@ function newell(points: Vec3[]): Vec3 {
  * Split a flat polygon into triangles by cutting off one "ear" at a time (a
  * corner whose triangle holds no other corner). A corner on a straight line
  * between its neighbors is never cut off as an ear, so it stays an end of the
- * other triangles, and a triangle with no area can be left over (see the top
- * of this file).
+ * other triangles, and a triangle with no area can be left over, which the library
+ * accepts.
  *
  * Throws a PolyhedronError for a polygon with no area, one that is not flat,
  * and one that crosses itself or is listed out of order.

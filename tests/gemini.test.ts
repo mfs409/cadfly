@@ -2,8 +2,9 @@ import { describe, expect, test } from "vitest";
 import type { ChatMessage } from "../src/cadfly/assistant/backend";
 import Ajv from "ajv";
 import { WORKED_EXAMPLES } from "../src/cadfly/assistant/workedExamples";
-import { opsAsText } from "../src/cadfly/assistant/ops";
-import { GeminiBackend, geminiReplySchema, GeminiError } from "../src/cadfly/assistant/gemini";
+import { GeminiBackend, geminiAnswerSchema, GeminiError } from "../src/cadfly/assistant/gemini";
+
+/** The Gemini backend, against a fake network. */
 
 const SCHEMA = { type: "object" };
 const ask = (b: GeminiBackend, messages: ChatMessage[] = [{ role: "system", content: "rules" }, { role: "user", content: "hi" }], signal?: AbortSignal) => b.generate({ messages, schema: SCHEMA, maxTokens: 700, signal });
@@ -13,7 +14,7 @@ function fake(reply: unknown, status = 200, headers: Record<string, string> = {}
   const fetch = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
     return new Response(JSON.stringify(reply), { status, headers });
-  }) as unknown as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch; // cast: a stand-in for fetch only needs to answer, not to be all of fetch's type
   return { fetch, calls };
 }
 const ok = (text: string, usage = { promptTokenCount: 2000, candidatesTokenCount: 100 }) => ({ candidates: [{ content: { parts: [{ text }] } }], usageMetadata: usage });
@@ -37,7 +38,7 @@ describe("the Gemini backend", () => {
     expect(body.systemInstruction.parts[0].text).toBe("rules");
     expect(body.contents.map((c: { role: string }) => c.role)).toEqual(["user", "model", "user"]);
     expect(body.generationConfig.responseMimeType).toBe("application/json");
-    expect(body.generationConfig.responseJsonSchema).toEqual(geminiReplySchema());
+    expect(body.generationConfig.responseJsonSchema).toEqual(geminiAnswerSchema());
     expect(body.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(700);
   });
 
@@ -61,6 +62,7 @@ describe("the Gemini backend", () => {
     expect(err.status).toBe(429);
     expect(err.retryAfter).toBe(12);
     expect(err.message).toMatch(/limit/);
+    expect(err.kind).toBe("limit");
   });
 
   test("a bad key is reported plainly, and never repeated back", async () => {
@@ -68,20 +70,38 @@ describe("the Gemini backend", () => {
     const err = await ask(new GeminiBackend({ apiKey: "SECRET", fetch })).catch((e) => e);
     expect(err.message).toBe("Google did not accept this API key");
     expect(err.message).not.toContain("SECRET");
+    expect(err.kind).toBe("badKey");
+  });
+
+  test("only a key Google does not accept is a bad key: a 403 is not", async () => {
+    const kindOf = async (status: number, message: string) => {
+      const { fetch } = fake({ error: { message } }, status);
+      return (await ask(new GeminiBackend({ apiKey: "k", fetch })).catch((e) => e)).kind;
+    };
+    expect(await kindOf(401, "unauthenticated")).toBe("badKey");
+    expect(await kindOf(400, "API key not valid")).toBe("badKey");
+    expect(await kindOf(403, "this region is not supported")).toBe("other");
+    expect(await kindOf(403, "API key has been revoked or the API is not enabled")).toBe("other");
+    expect(await kindOf(429, "quota")).toBe("limit");
+    expect(await kindOf(500, "oops")).toBe("other");
   });
 
   test("an empty or blocked answer is an error", async () => {
     const empty = fake({ candidates: [{ finishReason: "MAX_TOKENS" }] });
     await expect(ask(new GeminiBackend({ apiKey: "k", fetch: empty.fetch }))).rejects.toThrow(/MAX_TOKENS/);
     const blocked = fake({ promptFeedback: { blockReason: "SAFETY" } });
+    await expect(ask(new GeminiBackend({ apiKey: "k", fetch: blocked.fetch }))).rejects.toMatchObject({ kind: "blocked" });
     await expect(ask(new GeminiBackend({ apiKey: "k", fetch: blocked.fetch }))).rejects.toThrow(/blocked \(SAFETY\)/);
   });
 
   test("a network failure and a stopped request are told apart", async () => {
+    // cast: a stand-in for fetch that fails, which is not the type of fetch
     const down = (async () => { throw new TypeError("Failed to fetch"); }) as unknown as typeof fetch;
     const err = await ask(new GeminiBackend({ apiKey: "k", fetch: down })).catch((e) => e);
     expect(err).toBeInstanceOf(GeminiError);
     expect(err.status).toBe(0);
+    expect(err.kind).toBe("network");
+    // cast: a stand-in for fetch that is stopped, which is not the type of fetch
     const stopped = (async () => { throw new DOMException("aborted", "AbortError"); }) as unknown as typeof fetch;
     await expect(ask(new GeminiBackend({ apiKey: "k", fetch: stopped }))).rejects.toMatchObject({ name: "AbortError" });
   });
@@ -89,6 +109,7 @@ describe("the Gemini backend", () => {
   test("when Google is busy it tries again, then gives up", async () => {
     let n = 0;
     const waits: number[] = [];
+    // cast: a stand-in for fetch that is busy twice and then works, which is not the type of fetch
     const flaky = (async () => (++n < 3 ? new Response("{}", { status: 503 }) : new Response(JSON.stringify(ok("{}"))))) as unknown as typeof fetch;
     expect(await ask(new GeminiBackend({ apiKey: "k", fetch: flaky, sleep: async (ms) => void waits.push(ms) }))).toBe("{}");
     expect(waits).toEqual([2000, 4000]);
@@ -98,8 +119,8 @@ describe("the Gemini backend", () => {
   });
 
   test("the schema it sends accepts every worked example", () => {
-    const valid = new Ajv({ strict: false }).compile(geminiReplySchema());
-    for (const ex of WORKED_EXAMPLES) expect(valid({ ops: opsAsText(ex.ops), reply: ex.reply }), ex.user).toBe(true);
+    const valid = new Ajv({ strict: false }).compile(geminiAnswerSchema());
+    for (const ex of WORKED_EXAMPLES) expect(valid({ ops: ex.ops, reply: ex.reply }), ex.user).toBe(true);
   });
 
   test("check asks Google whether the key works, and generates nothing", async () => {

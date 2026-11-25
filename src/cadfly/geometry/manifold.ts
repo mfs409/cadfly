@@ -2,7 +2,7 @@ import Module, { type CrossSection, type Manifold } from "manifold-3d";
 import type { Flat, Kernel, MeshData, Solid, Vec2, Vec3 } from "./kernel";
 
 /**
- * A wrapper that presents manifold-3d (WebAssembly) as a Kernel (kernel.ts).
+ * A wrapper that presents manifold-3d (WebAssembly) as a Kernel.
  *
  * The key idea here is that this is the only file that uses manifold-3d, and by
  * wrapping it in a kernel, the underlying manifold-3d is kept private.
@@ -24,7 +24,7 @@ class Memory {
   /** Everything made since the last `release()`, to free on next release */
   private live = new Set<Freeable>();
 
-  /** What is kept through `release()` (see `Kernel.keep`) */
+  /** What is kept through `release()` */
   private kept = new Set<Freeable>();
 
   /**
@@ -69,7 +69,7 @@ class ManifoldSolid implements Solid {
     return new ManifoldSolid(memory.own(m));
   }
 
-  /** The volume. Negative if the triangles face inward (see `fromMesh`). */
+  /** The volume. Negative if the triangles face inward. */
   volume() { return this.m.volume(); }
 
   /** The corners of the smallest box that holds the solid */
@@ -83,7 +83,7 @@ class ManifoldSolid implements Solid {
   isValid() { return this.m.status() === "NoError" && !this.m.isEmpty(); }
 
   /**
-   * The surface as triangles (see `MeshData`). The library may keep more than
+   * The surface as triangles. The library may keep more than
    * x, y, z for each point (`numProp` numbers in all, such as a normal or a
    * color), so the positions are copied out three at a time, and the extras are
    * left behind. The result is plain JavaScript data, so this survives a
@@ -141,7 +141,7 @@ function unwrap(s: Solid): Manifold {
   return (s as ManifoldSolid).m;
 }
 
-/** The manifold-3d CrossSection inside a Flat (see `unwrap`) */
+/** The manifold-3d CrossSection inside a Flat */
 function flatOf(f: Flat): CrossSection {
   return (f as ManifoldFlat).cs;
 }
@@ -160,7 +160,7 @@ function flatOf(f: Flat): CrossSection {
  *
  * @param M The library's Manifold class, which is only available once the
  *          module has loaded, so it is handed in rather than imported.
- * @param memory Where the kernel records what it makes (see `Memory`).
+ * @param memory Where the kernel records what it makes.
  * @param r How far to grow or shrink by: the probe's radius. For a ball that is
  *          the radius; for a diamond, the distance from its center to each of
  *          its six points.
@@ -243,7 +243,7 @@ export async function createManifoldKernel(options: { wasmUrl?: string } = {}): 
     sphere(r, segments = 0) { return wrapSolid(Manifold.sphere(r, segments)); },
 
     /**
-     * A Minkowski difference: the points the rolling shape (see `structuring`)
+     * A Minkowski difference: the points the rolling shape
      * can reach while staying inside. Its own in-between shape is remembered.
      */
     erode(s, r, element = "ball", detail) {
@@ -304,8 +304,8 @@ export async function createManifoldKernel(options: { wasmUrl?: string } = {}): 
     },
 
     /**
-     * The library takes the height, how many steps to divide the sides into
-     * (see `twistDivisions`), the twist in degrees, and how much to scale the
+     * The library takes the height, how many steps to divide the sides into,
+     * the twist in degrees, and how much to scale the
      * top along u and along v
      */
     extrudeFlat(f, height, options = {}) {
@@ -394,7 +394,7 @@ export async function createManifoldKernel(options: { wasmUrl?: string } = {}): 
 
     /**
      * Delete everything this kernel has made since the last release, except
-     * what is kept (see `Memory`)
+     * what is kept
      */
     release() { memory.release(); },
 
@@ -407,7 +407,7 @@ export async function createManifoldKernel(options: { wasmUrl?: string } = {}): 
       return s;
     },
 
-    /** Unmark it, so that the next `release()` frees it (see `Memory.drop`) */
+    /** Unmark it, so that the next `release()` frees it */
     drop(s) { memory.drop(unwrap(s)); },
   };
 }

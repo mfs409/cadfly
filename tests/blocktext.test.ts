@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { BlockTextError, formatBlocks, parseBlocks } from "../src/cadfly/assistant/blocktext";
+import { BlockTextError, type NewBlock, formatBlocks, parseBlocks } from "../src/cadfly/assistant/blocktext";
 import { WORKED_EXAMPLES } from "../src/cadfly/assistant/workedExamples";
 import { applyOps } from "../src/cadfly/assistant/ops";
 import { programView } from "../src/cadfly/assistant/prompt";
-import { type NewBlock } from "../src/cadfly/assistant/ops";
+
+/** Reading and writing the block text that the model is shown and writes. */
 
 /** Blocks without empty `args`, so "no fields" is the same however it is written */
 const plain = (blocks: NewBlock[]): NewBlock[] => blocks.map(({ args, inner, ...rest }) => ({ ...rest, ...(args && Object.keys(args).length ? { args } : {}), ...(inner ? { inner: plain(inner) } : {}) }));
@@ -94,8 +95,12 @@ describe("writing block text", () => {
   test("what is written reads back the same, for every worked example", () => {
     for (const ex of WORKED_EXAMPLES) {
       for (const o of ex.ops) {
-        const lists = [(o as { blocks?: unknown }).blocks, (o as { with?: unknown }).with].filter((x): x is NewBlock[] => Array.isArray(x) && x.every((e) => typeof e === "object"));
-        for (const blocks of lists) expect(plain(parseBlocks(formatBlocks(blocks))), ex.user).toEqual(plain(blocks));
+        const texts = [(o as { blocks?: unknown }).blocks, (o as { with?: unknown }).with].filter((x): x is string => typeof x === "string");
+        for (const text of texts) {
+          const blocks = parseBlocks(text);
+          expect(plain(parseBlocks(formatBlocks(blocks))), ex.user).toEqual(plain(blocks));
+          expect(formatBlocks(blocks), ex.user).toBe(text); // the examples are written the way the writer writes block text
+        }
       }
     }
   });
@@ -108,10 +113,11 @@ describe("writing block text", () => {
 });
 
 describe("as ops", () => {
-  test("block text in an op builds the same program as blocks do", () => {
-    const text = applyOps([], [{ op: "append", blocks: "extrude name=plate height=5\n  rectangle w=40 h=30\n  circle u=8 v=8 r=3 hole" }]).program;
-    const objects = applyOps([], [{ op: "append", blocks: [{ kind: "extrude", args: { name: "plate", height: "5" }, inner: [{ kind: "rectangle", args: { w: "40", h: "30" } }, { kind: "circle", args: { u: "8", v: "8", r: "3", hole: true } }] }] }]).program;
-    expect(text).toEqual(objects);
+  test("block text written back out builds the same program as the text that was read", () => {
+    const text = "extrude name=plate height=5\n  rectangle w=40 h=30\n  circle u=8 v=8 r=3 hole";
+    const first = applyOps([], [{ op: "append", blocks: text }]).program;
+    const again = applyOps([], [{ op: "append", blocks: formatBlocks(parseBlocks(text)) }]).program;
+    expect(again).toEqual(first);
   });
 
   test("a mistake in the text is an op error that names the op and the line", () => {

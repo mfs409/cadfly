@@ -1,5 +1,5 @@
 # Builds cadfly and publishes it with GitHub Pages: the app at the site's root
-# (index.html) and the viewer beside it (cadfly-viewer.html).
+# (index.html).
 #
 # One-time setup: in the repository's Settings > Pages, set Source to
 # "GitHub Actions". After that every push to main deploys.

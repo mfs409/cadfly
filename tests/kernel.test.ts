@@ -1,6 +1,12 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import type { Kernel, Vec2 } from "../src/cadfly/geometry/kernel";
 import { createManifoldKernel } from "../src/cadfly/geometry/manifold";
+import { applyOps } from "../src/cadfly/assistant/ops";
+import { runProgram } from "../src/cadfly/language/run";
+import { snapshotOf } from "../src/cadfly/snapshot";
+import { box } from "./helpers/blocks";
+
+/** The geometry kernel itself, and releasing its memory after a run. */
 
 let k: Kernel;
 beforeAll(async () => {
@@ -13,6 +19,8 @@ const rect = (w: number, h: number): Vec2[] => [
   [w, h],
   [0, h],
 ];
+
+const program = (text: string) => applyOps([], [{ op: "append", blocks: text }]).program;
 
 describe("extrudeFlat", () => {
   test("20x10 rectangle extruded by 5", () => {
@@ -138,5 +146,53 @@ describe("releasing memory", () => {
     expect(kept.volume()).toBeCloseTo(8);
     k.drop(kept);
     k.release();
+  });
+});
+
+// The engine worker releases the kernel's memory after every run (or it grows with every edit): a run's result is plain data, and the
+// results of rounding and hollowing, which are remembered between runs, must survive it
+describe("building again after a release", () => {
+  test("a run's snapshot is still good after the release", () => {
+    const snap = snapshotOf(runProgram(k, program("box w=10 d=20 h=30")));
+    k.release();
+    expect(snap.combined!.volume).toBeCloseTo(6000);
+    expect(snap.shapes[0].mesh.positions.length).toBeGreaterThan(0);
+  });
+
+  test("a remembered result of rounding is used again by the next run, and gives the same shape", () => {
+    const text = "round radius=2\n  box w=10 d=10 h=10";
+    const first = snapshotOf(runProgram(k, program(text)));
+    k.release();
+    const second = snapshotOf(runProgram(k, program(text))); // finds the remembered solid, which the release must have left alone
+    k.release();
+    const third = snapshotOf(runProgram(k, program(text)));
+    k.release();
+    expect(first.problem).toBeUndefined();
+    expect(second.problem).toBeUndefined();
+    expect(second.combined!.volume).toBeCloseTo(first.combined!.volume);
+    expect(third.combined!.volume).toBeCloseTo(first.combined!.volume);
+    expect(first.combined!.volume).toBeLessThan(1000);
+  });
+
+  test("remembered results pushed out of the cache are freed, and building goes on working", () => {
+    // more different roundings than the cache holds
+    for (let r = 1; r <= 30; r++) {
+      const snap = snapshotOf(runProgram(k, program(`round radius=${r / 10}\n  box w=10 d=10 h=10`)));
+      k.release();
+      expect(snap.problem).toBeUndefined();
+    }
+    const again = snapshotOf(runProgram(k, program("round radius=0.1\n  box w=10 d=10 h=10")));
+    k.release();
+    expect(again.problem).toBeUndefined();
+  });
+
+  test("hollowing too", () => {
+    const text = "shell thickness=1 open=top\n  box w=10 d=10 h=10";
+    const a = snapshotOf(runProgram(k, program(text)));
+    k.release();
+    const b = snapshotOf(runProgram(k, program(text)));
+    k.release();
+    expect(a.problem).toBeUndefined();
+    expect(b.combined!.volume).toBeCloseTo(a.combined!.volume);
   });
 });
