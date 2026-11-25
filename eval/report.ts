@@ -9,8 +9,9 @@
  * what the runs record: it does not interpret them.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
 
-/** One case's result, as `run.mts` records it. */
+/** One case's result, as `run.ts` records it. */
 interface Row {
   id: string;
   lang: string;
@@ -26,15 +27,15 @@ interface Row {
 interface Run {
   /** The run's file name in `out/`, without `.json`. */
   name: string;
-  /** The model's name, as it was given to `run.mts`. */
+  /** The model's name, as it was given to `run.ts`. */
   model: string;
   rows: Row[];
 }
 
 /** Where the runs are. */
-const OUT = new URL("./out/", import.meta.url);
+const OUT = path.join(__dirname, "out");
 /** Where the report goes. */
-const REPORTS = new URL("./reports/", import.meta.url);
+const REPORTS = path.join(__dirname, "reports");
 
 /** The names of the runs to report: those on the command line, or every file in `out/`. */
 const names =
@@ -45,7 +46,7 @@ const names =
 /** The runs, in the order of `names`. */
 const runs: Run[] = names.map((name) => {
   try {
-    const { model, rows } = JSON.parse(readFileSync(new URL(`${name}.json`, OUT), "utf8")) as { model: string; rows: Row[] };
+    const { model, rows } = JSON.parse(readFileSync(path.join(OUT, `${name}.json`), "utf8")) as { model: string; rows: Row[] };
     return { name, model, rows };
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
@@ -101,5 +102,5 @@ for (const [id, lang] of requests) out += `| ${id} | ${lang} | ${runs.map((run) 
 /** Today's date, as yyyy-mm-dd. */
 const today = new Date().toLocaleDateString("sv");
 mkdirSync(REPORTS, { recursive: true });
-writeFileSync(new URL(`results-${today}.md`, REPORTS), out);
+writeFileSync(path.join(REPORTS, `results-${today}.md`), out);
 console.log(`wrote eval/reports/results-${today}.md`);

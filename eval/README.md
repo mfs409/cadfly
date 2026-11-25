@@ -15,7 +15,7 @@ Most are in English, and a few are in German, Spanish, French, Hindi and Tamil.
 Some start from an existing program, some follow earlier requests in the same conversation, and some come with STL files.
 Each request has a `check` that looks at the shapes the result builds, such as their size or how many holes there are, and not at the model's wording.
 
-`run.mts` sends every request through the same `ask()` the chat panel uses, against the model you name.
+`run.ts` sends every request through the same `ask()` the chat panel uses, against the model you name.
 It builds the resulting program and applies the check.
 It allows one repair attempt per request, as the chat panel does.
 It records whether the answer was correct, whether it was valid (the reply applied and the program has no problem), how long it took, and how many tokens it used.
@@ -28,8 +28,8 @@ It is how we know which models are worth offering in the app.
 - `cases.ts`: The requests.
   Each `Case` has an `id`, a `lang`, the starting `program`, the request `text`, and `check(outcome)`.
   It may also have earlier requests (`before`) and STL `files`.
-- `run.mts`: Runs a model on the cases and writes the raw rows to `out/`.
-- `report.mts`: Turns runs in `out/` into a Markdown report named `reports/results-yyyy-mm-dd.md`.
+- `run.ts`: Runs a model on the cases and writes the raw rows to `out/`.
+- `report.ts`: Turns runs in `out/` into a Markdown report named `reports/results-yyyy-mm-dd.md`.
 - `out/`: Raw runs, one JSON file each.
   Git-ignored, and created on the first run.
 - `reports/`: The reports, one Markdown file per day.

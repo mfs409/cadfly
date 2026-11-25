@@ -9,8 +9,8 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "check:tests": "tsc -p tsconfig.tests.json",
-    "eval": "tsx --tsconfig tsconfig.eval.json eval/run.mts",
-    "report": "tsx --tsconfig tsconfig.eval.json eval/report.mts",
+    "eval": "tsx --tsconfig tsconfig.eval.json eval/run.ts",
+    "report": "tsx --tsconfig tsconfig.eval.json eval/report.ts",
     "coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile.json=coverage/results.json && tsx --tsconfig tsconfig.tests.json scripts/tests-badge.ts"
   },
   "dependencies": {

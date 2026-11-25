@@ -18,7 +18,6 @@
     "src/cadfly/**/*.ts",
     "tests/**/*.ts",
     "eval/**/*.ts",
-    "eval/**/*.mts",
     "scripts/**/*.ts"
   ]
 }

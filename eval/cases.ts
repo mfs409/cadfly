@@ -2,7 +2,7 @@ import { WORKED_EXAMPLES } from "../src/cadfly/assistant/workedExamples";
 import { type Op, applyOps } from "../src/cadfly/assistant/ops";
 import type { Vec3 } from "../src/cadfly/geometry/kernel";
 import type { RunResult } from "../src/cadfly/language/run";
-import { allBlocks } from "../src/cadfly/language/program";
+import { allBlocks, isBlank } from "../src/cadfly/language/program";
 import type { Program } from "../src/cadfly/language/types";
 import { type StlFiles, addStlFile } from "../src/cadfly/language/files";
 import { writeStl } from "../src/cadfly/geometry/stl";
@@ -109,7 +109,8 @@ export const CASES: Case[] = [
   c("vase", "en", "revolve a rectangle 10 wide and 40 tall into a solid of revolution", sized(20, 20, 40)),
   c("variable", "en", "set a variable width to 30 and make a box that is width on every side", (o) => sized(30, 30, 30)(o) && has(o, "set") >= 1),
   c("side-by-side", "en", "two 10 mm cubes next to each other along x, touching", sized(20, 10, 10)),
-  c("snowman", "en", "a snowman: three spheres of radius 10, 7 and 5 stacked on each other", (o) => sized(20, 20, 44)(o) && has(o, "sphere") === 3),
+  // stacked balls may touch (44 tall) or sink into each other so that they join (shorter), so the height is a range
+  c("snowman", "en", "a snowman: three spheres of radius 10, 7 and 5 stacked on each other", (o) => !o.run.problem && has(o, "sphere") === 3 && near(size(o)?.[0] ?? 0, 20) && (size(o)?.[2] ?? 0) >= 34 && (size(o)?.[2] ?? 0) <= 44.5),
   c("table", "en", "a table: a top 100 by 60 and 5 thick, on four legs that are 5 by 5 and 40 tall", (o) => !o.run.problem && !!size(o) && near(size(o)![0], 100) && near(size(o)![1], 60) && near(size(o)![2], 45)),
   c("pyramid", "en", "make a pyramid with a 40mm-per-side square base and a height of 25 mm", (o) => sized(40, 40, 25)(o) && volume((40 * 40 * 25) / 3)(o)),
   c("wedge", "en", "a wedge 20 wide and 30 long, 10 high at one end sloping down to nothing at the other end", (o) => sized(20, 30, 10)(o) && volume(0.5 * 20 * 30 * 10)(o)),
@@ -133,7 +134,8 @@ export const CASES: Case[] = [
   c("loft", "en", "a vase that is a 30 mm square at the bottom and a circle of radius 10 at the top, 60 tall", (o) => !o.run.problem && allBlocks(o.program).some((b) => b.kind === "loft") && near(size(o)?.[2] ?? 0, 60)),
   c("sweep", "en", "a pipe of radius 4 that goes up 30 and then 20 along x", (o) => !o.run.problem && allBlocks(o.program).some((b) => b.kind === "sweep") && !!size(o) && size(o)![2] > 29),
   c("lid", "en", "a lid for a 50 by 35 box: 2 thick and 0.4 wider than the box on every side", (o) => !o.run.problem && (o.run.shapes.length >= 2 || !!o.run.combined) && !!size(o) && near(size(o)![0], 50.8, 0.03)),
-  c("fillet", "en", "a round post of radius 5 and height 30 standing on a 50 by 50 by 5 base, with a fillet of 3 where they meet", (o) => !o.run.problem && allBlocks(o.program).some((b) => b.kind === "fillet") && near(size(o)?.[2] ?? 0, 30) && (o.run.combined?.volume() ?? 0) > 12500 + Math.PI * 25 * 25 + 20),
+  // "a post of height 30 standing on a base" reads as 30 above the base (35 in all) or as 30 in all, so both are accepted
+  c("fillet", "en", "a round post of radius 5 and height 30 standing on a 50 by 50 by 5 base, with a fillet of 3 where they meet", (o) => !o.run.problem && allBlocks(o.program).some((b) => b.kind === "fillet") && [30, 35].some((h) => near(size(o)?.[2] ?? 0, h)) && (o.run.combined?.volume() ?? 0) > 12500 + Math.PI * 25 * 25 + 20),
   c("washer", "en", "a washer 2 thick with an outer radius of 10 and a hole of radius 4 through the middle", (o) => !o.run.problem && near(o.run.combined?.volume() ?? 0, (Math.PI * 100 - Math.PI * 16) * 2, 0.03) && near(size(o)?.[2] ?? 0, 2)),
   c("flat-draw", "en", "just draw, flat and not extruded, a 40 by 20 rectangle with a circle of radius 5 cut out of its middle", (o) => !o.run.problem && !o.run.combined && near(o.run.flat?.area() ?? 0, 800 - Math.PI * 25, 0.02)),
   // changing what is there
@@ -146,7 +148,7 @@ export const CASES: Case[] = [
   c("move-up", "en", "move the plate up by 20", (o) => !o.run.problem && !!bounds(o) && near(bounds(o)!.min[2], 20) && near(size(o)![2], 5), PLATE),
   c("rotate", "en", "rotate the plate 90 degrees about x", sized(40, 5, 30), PLATE),
   c("hide", "en", "hide the plate", (o) => !o.run.problem && !o.run.combined, PLATE),
-  c("clear", "en", "delete everything", (o) => o.program.length === 0, PLATE),
+  c("clear", "en", "delete everything", (o) => isBlank(o.program), PLATE),
   c("double", "en", "make the plate twice as big in every direction", sized(80, 60, 10), PLATE),
   c("slide", "en", "move the plate 30 along x", (o) => !o.run.problem && !!bounds(o) && near(bounds(o)!.min[0], 10, 0.05) && near(bounds(o)!.min[1], -15, 0.05), PLATE),
   c("extra-hole", "en", "add a hole of radius 5 in the middle of the plate", volume(PLATE_V - holes(3) - PI * 25 * 5), PLATE),
