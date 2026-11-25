@@ -200,7 +200,10 @@ export function parseProject(text: string): Project {
   const { program, files = {} } = data as { program?: unknown; files?: unknown };
   validateProgram(program);
   validateStlFiles(files);
-  // `expanded` is no longer a thing a block has; a file that still carries it is loaded without it
-  for (const block of allBlocks(program)) delete (block as { expanded?: unknown }).expanded;
+  // `expanded` and `at` are no longer things a block has (a script has `at`); a file that still carries them on a block is loaded without them
+  for (const block of allBlocks(program)) {
+    delete (block as { expanded?: unknown }).expanded;
+    delete (block as { at?: unknown }).at;
+  }
   return { program, files };
 }

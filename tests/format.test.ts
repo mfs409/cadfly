@@ -44,6 +44,16 @@ describe("the file", () => {
     expect(JSON.parse(serializeProject(p)).program[2]).toMatchObject({ name: "c", inputs: "w", at: { x: 6, y: 0 }, collapsed: true });
   });
 
+  test("a place left on a block by an older version is dropped when the file is read, and not written back", () => {
+    const old = JSON.parse(serializeProject(oneScript([blk("b1", "subtract", {}, [box("b2")])])));
+    old.program[0].blocks[0].inner[0].at = { x: 3.3, y: 14.39 };
+    old.program[0].blocks[0].at = { x: 1, y: 2 };
+    const loaded = parseProject(JSON.stringify(old));
+    expect("at" in loaded.program[0].blocks[0]).toBe(false);
+    expect("at" in (loaded.program[0].blocks[0].inner ?? [])[0]).toBe(false);
+    expect(serializeProject(loaded.program)).not.toContain('"at"');
+  });
+
   test("a place has to be numbers of sensible size", () => {
     const fails = (script: unknown, m: RegExp) => expect(() => validateProgram([script])).toThrow(m);
     const blocks = [box("a")];
