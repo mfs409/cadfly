@@ -1,5 +1,7 @@
 import type { Vec2, Vec3 } from "./kernel";
 
+/** Small functions for vectors in two and three dimensions. None of them changes its arguments. */
+
 /** The sum of two vectors: `a` moved by `b` */
 export function add(a: Vec3, b: Vec3): Vec3 {
   return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];

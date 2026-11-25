@@ -60,6 +60,7 @@ export function googleFontId(f: GoogleFont): string {
  */
 export function parseGoogleFont(input: string): GoogleFont {
   const text = input.trim();
+  /** Stop with a message that says what to type instead. */
   const fail = (): never => {
     throw new GoogleFontError(`I do not know which Google font "${text.slice(0, 60)}" is: type its name (Pacifico, Open Sans 700) or paste its address from fonts.google.com`);
   };

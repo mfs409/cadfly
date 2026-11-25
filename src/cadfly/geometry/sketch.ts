@@ -243,6 +243,7 @@ function roundedRectangle(corner: Vec2, w: number, h: number, radius: number): V
  * letter with no outline.
  */
 export function shapeToContour(s: SketchShape): Vec2[] {
+  /** Throw unless this size is a positive number. */
   const positive = (v: number, what: string) => {
     if (!Number.isFinite(v) || v <= 0) throw new SketchError(`${what} must be a positive number`);
   };
