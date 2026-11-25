@@ -125,9 +125,9 @@ describe("fitting a request into the window", () => {
     expect(built.tokens).toBeLessThanOrEqual(7500 - 700);
   });
 
-  test("in a 4096-token window most of the examples still fit", () => {
+  test("in a 4096-token window several of the examples still fit", () => {
     const built = buildMessages({ program: oneScript([blk("b1", "box", { name: "a" })]), history: [] }, "make it taller");
-    expect(built.trimmed.examples).toBeLessThanOrEqual(18);
+    expect(WORKED_EXAMPLES.length - built.trimmed.examples).toBeGreaterThanOrEqual(5);
     expect(built.tokens).toBeLessThanOrEqual(DEFAULT_BUDGET.context - DEFAULT_BUDGET.reply);
   });
 

@@ -8,7 +8,7 @@
 import { evaluateExpr, ExprError } from "../../../geometry/expr";
 import { ProgramError, inputNames, splitValues } from "../../env";
 import { BUILD, isFlat } from "../../types";
-import { expr, text, merged, mergedSolid } from "../helpers";
+import { chosenBranch, expr, text, merged, mergedSolid } from "../helpers";
 import { SHAPES } from "../types";
 import type { CommandEntry } from "../types";
 import { blankBlock } from "../lookup";
@@ -49,7 +49,8 @@ export const codeEntries: readonly CommandEntry[] = [
    * gives the counter (a variable that exists only inside the block, and is 0,
    * 1, 2, ... in turn) and the number of passes, which must be a whole number
    * up to `MAX_PASSES`. The repeating is done when the program runs. Builds nothing if there is
-   * nothing inside.
+   * nothing inside. Inside a block that holds points (a polygon, a solid's
+   * vertices, a sweep's path) it makes its points again for each pass instead.
    */
   {
     id: "repeat",
@@ -74,7 +75,8 @@ export const codeEntries: readonly CommandEntry[] = [
    * else block when it is false. It chooses before building, so the branch not
    * taken is never built and may be wrong, or never end, without harm. The
    * condition must be a yes/no. An if may have only one
-   * else.
+   * else. Inside a block that holds points (a polygon, a solid's vertices, a
+   * sweep's path) it chooses between points instead.
    */
   {
     id: "if",
@@ -86,12 +88,9 @@ export const codeEntries: readonly CommandEntry[] = [
     inner: [...SHAPES, "else"],
     starter: (nextId) => [blankBlock("else", nextId())], // an if starts with its else, empty
     make: (env, a) => {
-      const inside = a.block.inner ?? [];
-      const elses = inside.filter((k) => k.kind === "else");
-      if (elses.length > 1) throw new ProgramError(elses[1].id, "an if can have only one else");
       // only the branch that is taken is built: the other may be wrong (or
       // never end) without harm
-      const chosen = a.truth("condition") ? inside.filter((k) => k.kind !== "else") : (elses[0]?.inner ?? []);
+      const chosen = chosenBranch(a);
       const kids = chosen.length ? env.buildBlocks(chosen) : [];
       return kids.length ? merged(env, a, kids) : null;
     },

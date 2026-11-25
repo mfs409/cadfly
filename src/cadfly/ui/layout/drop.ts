@@ -1,4 +1,4 @@
-import { accepts, acceptsInScript } from "../../language/program";
+import { accepts, acceptsInScript, pointLists } from "../../language/program";
 import type { Block, Program, Script } from "../../language/types";
 import type { DropPoint, ProgramLayout } from "./types";
 
@@ -7,10 +7,12 @@ import type { DropPoint, ProgramLayout } from "./types";
  * blocks being dragged, and the one nearest the pointer.
  */
 
-/** What is looked up about a program for every drop point: the kind of each block, and each script by id */
+/** What is looked up about a program for every drop point: the kind of each block, whether the blocks inside a block are a list of points, and each script by id */
 interface Lookup {
   /** The kind of every block, by id */
   kinds: Map<string, string>;
+  /** For every block that holds blocks, the point holder whose list of points they are, if they are one */
+  lists: Map<string, string | null>;
   /** Every script, by id */
   scripts: Map<string, Script>;
 }
@@ -34,7 +36,7 @@ function lookupFor(program: Program): Lookup {
     /** Remember the kind of every block, and of those inside it. */
     const note = (bs: Block[]) => bs.forEach((b) => (kinds.set(b.id, b.kind), note(b.inner ?? [])));
     note(program.flatMap((s) => s.blocks));
-    found = { kinds, scripts: new Map(program.map((s) => [s.id, s])) };
+    found = { kinds, lists: pointLists(program), scripts: new Map(program.map((s) => [s.id, s])) };
     lookups.set(program, found);
   }
   return found;
@@ -51,9 +53,9 @@ function lookupFor(program: Program): Lookup {
  * @param kinds The kinds of the blocks being dragged.
  */
 export function acceptingPoints(layout: ProgramLayout, program: Program, kinds: string[]): DropPoint[] {
-  const { kinds: parentKind, scripts } = lookupFor(program);
+  const { kinds: parentKind, lists, scripts } = lookupFor(program);
   return layout.dropPoints.filter((a) => {
-    if ("parentId" in a) return kinds.every((k) => accepts(parentKind.get(a.parentId) ?? "", k));
+    if ("parentId" in a) return kinds.every((k) => accepts(parentKind.get(a.parentId) ?? "", k, lists.get(a.parentId) ?? null));
     const script = scripts.get(a.scriptId);
     return !!script && kinds.every((k) => acceptsInScript(script, k));
   });

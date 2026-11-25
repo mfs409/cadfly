@@ -167,5 +167,5 @@ export const COMMANDS: readonly CommandDef[] = inOrder([...codeEntries, ...shape
 registerCommands(COMMANDS);
 
 export { blankBlock, blockWith, commandById };
-export { FLAT_SHAPES, MAX_BUILT_BLOCKS, SHAPES, canDisable, canHide } from "./types";
+export { FLAT_SHAPES, MAX_BUILT_BLOCKS, POINT_HOLDERS, POINT_LIST_FLOW, SHAPES, canDisable, canHide } from "./types";
 export type { CommandDef, CommandEntry } from "./types";

@@ -216,7 +216,7 @@ export const shapesEntries: readonly CommandEntry[] = [
     partOf: "a solid",
     params: [flag("show", "show labels")],
     viewOnly: ["show"],
-    inner: ["vertex"],
+    inner: ["vertex", "repeat", "if", "set"],
   },
   /**
    * The section of a solid that holds its faces. It has a button, "hull", while

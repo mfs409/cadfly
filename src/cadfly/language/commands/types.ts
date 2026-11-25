@@ -185,3 +185,20 @@ export const SHAPES = ["set", "repeat", "if", "use", "import", "box", "cylinder"
  * every repeat (a run stops there)
  */
 export const MAX_BUILT_BLOCKS = 5000;
+
+/**
+ * The blocks that hold a list of points, by kind of holder, with the kind of
+ * block that is one point of the list: a polygon's `point`, a solid's section
+ * of `vertex` blocks, and a sweep's path (its `vertex` blocks, beside the flat
+ * shape it carries). `repeat`, `if` and `set` may be used in such a list to
+ * make the points: see `POINT_LIST_FLOW`.
+ */
+export const POINT_HOLDERS: Readonly<Record<string, string>> = { polygon: "point", vertices: "vertex", sweep: "vertex" };
+
+/**
+ * The blocks that pass a list of points through, inside a block that holds one:
+ * a `repeat` makes its points again for each pass, an `if` chooses between its
+ * own points and its else block's, and an `else` holds the points of the other
+ * branch.
+ */
+export const POINT_LIST_FLOW: readonly string[] = ["repeat", "if", "else"];

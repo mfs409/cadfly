@@ -1,4 +1,4 @@
-import { commandById } from "./commands";
+import { POINT_HOLDERS, POINT_LIST_FLOW, commandById } from "./commands";
 import { BUILD, type Block, type Point, type Program, type Script } from "./types";
 
 /**
@@ -95,7 +95,7 @@ export type InsertPoint = ListPoint | { newScript: { at?: Point } } | { end: tru
  * blocks, in order. Otherwise, none (the blocks are simply put there).
  *
  * A block that is an automatic part of its parent, or a piece, is never
- * wrapped. A new script or the end of the program is never a place to wrap, and
+ * wrapped (except a point in a list of points, which a repeat or if may wrap). A new script or the end of the program is never a place to wrap, and
  * neither is a global script (which holds only `set` blocks).
  *
  * @param program The program the blocks are being put in (without them, if they
@@ -106,14 +106,19 @@ export type InsertPoint = ListPoint | { newScript: { at?: Point } } | { end: tru
 export function blocksToWrap(program: Program, point: InsertPoint, blocks: Block[]): Block[] {
   if (blocks.length !== 1 || "newScript" in point || "end" in point) return [];
   const [holder] = blocks;
-  if (!commandById(holder.kind)?.inner || holder.inner?.length) return [];
+  // a holder of points would take the blocks of a list of shapes, and make nothing of them
+  if (!commandById(holder.kind)?.inner || holder.inner?.length || holder.kind in POINT_HOLDERS) return [];
   const script = "scriptId" in point ? program.find((s) => s.id === point.scriptId) : undefined;
   if (script && isGlobalScript(script)) return [];
   const list = "parentId" in point ? findBlock(program, point.parentId)?.block.inner : script?.blocks;
   const following = list?.slice(point.index) ?? [];
+  // the points that a list is made of can be wrapped in a repeat or if too
+  const within = "parentId" in point ? (pointLists(program).get(point.parentId) ?? null) : null;
+  const inside = pointListOf(holder.kind, within);
   const holdable = following.every((b) => {
     const def = commandById(b.kind);
-    return !def?.automatic && !def?.piece && accepts(holder.kind, b.kind);
+    const isPoint = within !== null && b.kind === POINT_HOLDERS[within];
+    return !def?.automatic && (!def?.piece || isPoint) && accepts(holder.kind, b.kind, inside);
   });
   return holdable ? following : [];
 }
@@ -163,11 +168,62 @@ export function findBlock(program: Program, id: string): BlockLocation | undefin
 }
 
 /**
- * Can a block of this kind be put in the list of blocks inside a block of kind
- * `parentKind`?
+ * The kind of point holder (a polygon, a solid's vertices section, a sweep)
+ * whose list of points the blocks inside a block of this kind belong to, or
+ * null if they are not a list of points. A point holder's blocks are such a
+ * list. So are the blocks inside a `repeat`, `if` or `else` that is itself in
+ * such a list, which is how a `repeat` of shapes and a `repeat` of points can
+ * both be a `repeat`.
+ *
+ * @param kind The kind of the block that holds the blocks.
+ * @param within The point holder whose list the block is in, or null if it is
+ *               not in a list of points.
  */
-export function accepts(parentKind: string, kind: string): boolean {
-  return !!commandById(kind) && (commandById(parentKind)?.inner?.includes(kind) ?? false);
+export function pointListOf(kind: string, within: string | null): string | null {
+  if (kind in POINT_HOLDERS) return kind;
+  return within !== null && POINT_LIST_FLOW.includes(kind) ? within : null;
+}
+
+/**
+ * Can a block of this kind be put in the list of blocks inside a block of kind
+ * `parentKind`? In a list of points, only a point, a `repeat`, an `if` (with
+ * its `else`) and a `set` can. A sweep's list also holds the flat shape it
+ * carries, so it takes what it ordinarily does.
+ *
+ * @param parentKind The kind of the block that would hold it.
+ * @param kind The kind of the block to put there.
+ * @param list The point holder whose list the blocks inside the parent are, or
+ *             null if it is not a list of points (see `pointListOf`).
+ */
+export function accepts(parentKind: string, kind: string, list: string | null = null): boolean {
+  if (!commandById(kind)) return false;
+  if (list !== null) {
+    if (kind === POINT_HOLDERS[list] || kind === "repeat" || kind === "if" || kind === "set") return true;
+    if (kind === "else") return parentKind === "if";
+    if (list !== "sweep") return false;
+  }
+  return commandById(parentKind)?.inner?.includes(kind) ?? false;
+}
+
+/**
+ * For every block that holds blocks (by id), the point holder whose list of
+ * points the blocks inside it are, or null (see `pointListOf`). A block that
+ * holds none, or that is not a holder, has an entry that says null.
+ *
+ * @param program The program.
+ */
+export function pointLists(program: Program): Map<string, string | null> {
+  const lists = new Map<string, string | null>();
+  /** Note the list of every block here, and inside them; `within` is the list these blocks are in. */
+  const visit = (blocks: Block[], within: string | null) => {
+    for (const b of blocks) {
+      const own = pointListOf(b.kind, within);
+      lists.set(b.id, own);
+      visit(b.inner ?? [], own);
+    }
+  };
+  for (const script of program) visit(script.blocks, null);
+  return lists;
 }
 
 /**

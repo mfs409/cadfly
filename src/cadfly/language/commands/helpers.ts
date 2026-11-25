@@ -13,6 +13,7 @@ import { type SketchShape, SketchError, shapeToContour, shapeToContours } from "
 import { BlockArgs, Env, ProgramError } from "../env";
 import { type Block, type FlatPiece, type Param, type Shape, isFlat } from "../types";
 import { commandById } from "./lookup";
+import { MAX_BUILT_BLOCKS, POINT_LIST_FLOW } from "./types";
 
 /** A field that holds a number, or arithmetic using variables */
 export function expr(id: string, label: string, def: string): Param {
@@ -100,8 +101,81 @@ export function drawFlat(env: Env, block: Block, a: BlockArgs): FlatPiece {
 }
 
 /**
+ * The blocks an `if` uses this time: the ones inside it when its condition is
+ * true, else what its else block holds. Only the chosen branch is looked at, so
+ * the other may be wrong without harm. Throws a ProgramError, against the
+ * second else, if the `if` has more than one.
+ *
+ * @param a The arguments of the `if` block.
+ */
+export function chosenBranch(a: BlockArgs): Block[] {
+  const inside = a.block.inner ?? [];
+  const elses = inside.filter((k) => k.kind === "else");
+  if (elses.length > 1) throw new ProgramError(elses[1].id, "an if can have only one else");
+  return a.truth("condition") ? inside.filter((k) => k.kind !== "else") : (elses[0]?.inner ?? []);
+}
+
+/**
+ * Does this block make points of the given kind: is it one, or a `repeat` or
+ * `if` with one inside it, at any depth?
+ *
+ * @param block The block.
+ * @param kind The kind of point (`point` or `vertex`).
+ */
+export function makesPoints(block: Block, kind: string): boolean {
+  return block.kind === kind || (POINT_LIST_FLOW.includes(block.kind) && (block.inner ?? []).some((k) => makesPoints(k, kind)));
+}
+
+/**
+ * The points a list of blocks makes, in order. A block of the given kind is one
+ * point, read with `read`. A `repeat` makes its points again for each pass,
+ * with its counter set to the number of the pass; an `if` makes the points of
+ * the branch its condition chooses; a `set` sets a variable for the blocks
+ * after it (inside the list that has it, and gone when the list ends). So a
+ * list of blocks can describe an outline with a formula, such as the corners
+ * of a gear.
+ *
+ * Every block looked at counts toward the limit on what a program may build
+ * (`MAX_BUILT_BLOCKS`), so that a repeat inside a repeat cannot make a run that
+ * never ends. A problem is reported on the block that has it.
+ *
+ * @param env What the program has built and set so far.
+ * @param holder The block that holds the list (the limit is reported on it).
+ * @param blocks The blocks to read.
+ * @param kind The kind of block that is a point (`point` or `vertex`).
+ * @param read How to read one such block.
+ */
+export function piecesIn<T>(env: Env, holder: Block, blocks: Block[], kind: string, read: (block: Block) => T): T[] {
+  const found: T[] = [];
+  const repeatDef = commandById("repeat")!;
+  const ifDef = commandById("if")!;
+  const setDef = commandById("set")!;
+  /** Read one list of blocks, in the scope that is in force. */
+  const walk = (list: Block[]) => {
+    for (const b of list) {
+      if (++env.blocksBuilt > MAX_BUILT_BLOCKS) throw new ProgramError(holder.id, `the program has built more than ${MAX_BUILT_BLOCKS} blocks: check how many times it repeats`);
+      if (b.kind === kind) found.push(read(b));
+      else if (b.kind === "set") setDef.run!(env, new BlockArgs(env, b, setDef));
+      else if (b.kind === "repeat") {
+        const { counter, times } = repeatDef.loop!(env, new BlockArgs(env, b, repeatDef));
+        // the counter is its own variable for each pass, and gone afterwards
+        for (let pass = 0; pass < times; pass++) {
+          env.inNewScope(() => {
+            env.scope.set(counter, pass);
+            walk(b.inner ?? []);
+          });
+        }
+      } else if (b.kind === "if") env.inNewScope(() => walk(chosenBranch(new BlockArgs(env, b, ifDef))));
+      else throw new ProgramError(b.id, `a ${commandById(b.kind)?.word ?? b.kind} block cannot be among the ${kind} blocks of ${commandById(holder.kind)?.word ?? holder.kind}`);
+    }
+  };
+  env.inNewScope(() => walk(blocks));
+  return found;
+}
+
+/**
  * The corner points in a block (a solid's vertices section, or a sweep's path):
- * its vertex blocks, in order.
+ * its vertex blocks, in order, including the ones that a `repeat` or `if` makes.
  *
  * @param a The arguments of the block that asks (errors are reported on it).
  * @param least The fewest points that make sense (4 for a solid, 2 for a path).
@@ -109,7 +183,9 @@ export function drawFlat(env: Env, block: Block, a: BlockArgs): FlatPiece {
  */
 export function verticesOf(env: Env, a: BlockArgs, least = 4, holder: Block = a.block): Vec3[] {
   const def = commandById("vertex")!;
-  const points = (holder.inner ?? []).filter((k) => k.kind === "vertex").map((k) => {
+  // a sweep holds a flat shape too (and its own repeats and ifs of shapes): only what makes vertices is the path
+  const blocks = (holder.inner ?? []).filter((k) => holder.kind !== "sweep" || makesPoints(k, "vertex"));
+  const points = piecesIn(env, holder, blocks, "vertex", (k) => {
     const va = new BlockArgs(env, k, def);
     return [va.num("x"), va.num("y"), va.num("z")] as Vec3;
   });

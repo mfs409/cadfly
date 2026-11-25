@@ -1,4 +1,4 @@
-import { commandById } from "../../language/commands";
+import { POINT_LIST_FLOW, commandById } from "../../language/commands";
 import type { ListPoint } from "../../language/program";
 import type { Block, Program } from "../../language/types";
 import { flowGroups, headerGroups } from "./header";
@@ -39,12 +39,17 @@ function listPoint(parentId: string | null, scriptId: string, index: number): Li
  * @param depth How many blocks they are inside of.
  * @param baseAt The position of the base among them (a subtract's first shape),
  *               which is labeled as such; -1 if there is none.
+ * @param numbering Do numbered blocks (a vertex) show their place in the list as
+ *                  their number? Not inside a repeat or if, nor beside one,
+ *                  because it can make several points from one block.
  */
-function layoutList(ctx: Context, blocks: Block[], parentId: string | null, scriptId: string, x: number, y: number, width: number, depth: number, baseAt = -1) {
+function layoutList(ctx: Context, blocks: Block[], parentId: string | null, scriptId: string, x: number, y: number, width: number, depth: number, baseAt = -1, numbering = true) {
   let right = x;
   ctx.out.dropPoints.push({ ...listPoint(parentId, scriptId, 0), x, y });
+  // where a repeat or if makes some of the points, a block's place in the list is not its number
+  const numbered = numbering && !blocks.some((k) => k.kind === "repeat" || k.kind === "if");
   blocks.forEach((b, i) => {
-    const ordinal = commandById(b.kind)?.numbered !== undefined ? blocks.slice(0, i + 1).filter((k) => k.kind === b.kind).length : 0;
+    const ordinal = numbered && commandById(b.kind)?.numbered !== undefined ? blocks.slice(0, i + 1).filter((k) => k.kind === b.kind).length : 0;
     const placed = layoutBlock(ctx, b, scriptId, x, y, width, depth, i === baseAt, ordinal);
     y = placed.bottom;
     right = Math.max(right, placed.right);
@@ -93,7 +98,7 @@ function layoutBlock(ctx: Context, block: Block, scriptId: string, x: number, y:
   } else if (def.inner) {
     const kids = block.inner ?? [];
     const baseAt = def.baseFirst ? kids.findIndex((k) => commandById(k.kind)?.make) : -1;
-    const inner = layoutList(ctx, kids, block.id, scriptId, x + m.indent, headerBottom, width - m.indent, depth + 1, baseAt);
+    const inner = layoutList(ctx, kids, block.id, scriptId, x + m.indent, headerBottom, width - m.indent, depth + 1, baseAt, !POINT_LIST_FLOW.includes(block.kind));
     const innerEnd = kids.length ? inner.bottom : headerBottom + m.emptyH;
     // as wide as the header, or as the widest thing inside, or as an empty
     // slot needs

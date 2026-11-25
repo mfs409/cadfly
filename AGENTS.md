@@ -41,6 +41,8 @@ Outside `src/`:
 - A script with no name is a global script, and it may hold only `set` blocks.
 - A script with a name is like a function. A `use` block runs it with inputs, in a fresh scope that sees the globals.
 - Scoping is lexical. A script sees its own variables and the globals, and never its caller's.
+- A polygon's points, a solid's vertices and a sweep's path are lists of points.
+  A `repeat`, `if` (with its `else`) or `set` inside such a list makes points from a formula, so what may go inside a `repeat` depends on where the `repeat` is: `accepts` takes the kind of point list as its third argument.
 - Editing operations never change a program in place. They return a fresh copy, even when nothing changed.
 - A mode says which kinds of block the palette offers, whether blocks have the eye and power switches, and whether scripts are available.
   A mode never changes what a program builds, and it never hides what is already there.

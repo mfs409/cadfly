@@ -13,7 +13,7 @@ import { loft, sweep, SweepError } from "../../../geometry/sweep";
 import { polygonArea } from "../../../geometry/vec";
 import { BlockArgs, Env, ProgramError } from "../../env";
 import { type Block, type FlatPiece, type Shape, isFlat } from "../../types";
-import { expr, caption, text, flag, choice, verticesOf, merged } from "../helpers";
+import { expr, caption, text, flag, choice, makesPoints, piecesIn, verticesOf, merged } from "../helpers";
 import { FLAT_SHAPES } from "../types";
 import type { CommandEntry } from "../types";
 import { commandById, blankBlock, blockWith } from "../lookup";
@@ -148,8 +148,11 @@ export const sketchEntries: readonly CommandEntry[] = [
     sketch: (_env, a) => textShapes(a.text("text"), a.num("u"), a.num("v"), a.num("size"), a.flag("hole"), a.text("font")),
   },
   /**
-   * A closed outline of the `point` blocks inside it, joined in order. Needs at
-   * least three points, and the sides may not cross (the sketch checks).
+   * A closed outline of the points inside it, joined in order. The points are
+   * its `point` blocks, and the ones that a `repeat` or `if` inside it makes
+   * (with `set` for a variable that a pass needs), so an outline can be
+   * described by a formula. Needs at least three points, and the sides may not
+   * cross (the sketch checks).
    */
   {
     id: "polygon",
@@ -158,11 +161,11 @@ export const sketchEntries: readonly CommandEntry[] = [
     word: "polygon",
     category: "sketch",
     params: [expr("rotate", "rotate", "0"), flag("hole", "hole")],
-    inner: ["point"],
+    inner: ["point", "repeat", "if", "set"],
     starter: (nextId) => [blockWith("point", nextId(), { u: "0", v: "0" }), blockWith("point", nextId(), { u: "10", v: "0" }), blockWith("point", nextId(), { u: "0", v: "10" })],
     sketch: (env, a) => {
       const pointDef = commandById("point")!;
-      const points = (a.block.inner ?? []).map((p) => {
+      const points = piecesIn(env, a.block, a.block.inner ?? [], "point", (p) => {
         const pa = new BlockArgs(env, p, pointDef);
         return [pa.num("u"), pa.num("v")] as [number, number];
       });
@@ -343,7 +346,7 @@ export const sketchEntries: readonly CommandEntry[] = [
     ],
     make: (env, a) => {
       const path = verticesOf(env, a, 2);
-      const { outers, holes } = profileOf(env, a.block, (a.block.inner ?? []).filter((k) => k.kind !== "vertex"), "this block");
+      const { outers, holes } = profileOf(env, a.block, (a.block.inner ?? []).filter((k) => !makesPoints(k, "vertex")), "this block");
       if (holes.length) throw new ProgramError(a.block.id, "the outline cannot have holes (cut one out of the result with subtract)");
       if (a.block.hidden === true) {
         // the outline where the path starts and where it ends, as thin slabs

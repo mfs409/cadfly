@@ -1,7 +1,7 @@
 import { RESERVED } from "../geometry/expr";
 import { canDisable, canHide, commandById } from "./commands";
 import { VARIABLE_NAME, inputNames } from "./env";
-import { accepts, acceptsInScript, allBlocks } from "./program";
+import { accepts, acceptsInScript, allBlocks, pointListOf } from "./program";
 import { type StlFiles, validateStlFiles } from "./files";
 import { BUILD, type Block, type Program, type Script } from "./types";
 
@@ -40,11 +40,14 @@ const MAX_AT = 10_000;
  * @param block What was read from the file.  Untrusted type.
  * @param parent The kind of the block that holds this one: null for a block at
  *               the top of a script, which has no parent.
+ * @param list The point holder whose list of points this block is in (a
+ *             polygon, a solid's vertices section, a sweep), or null if the
+ *             blocks around it are not a list of points.
  * @param depth How many blocks this one is inside.
  * @param seen The ids found so far, to refuse an id used twice (and to count
  *             the blocks).
  */
-function check(block: unknown, parent: string | null, depth: number, seen: Set<string>): asserts block is Block {
+function check(block: unknown, parent: string | null, list: string | null, depth: number, seen: Set<string>): asserts block is Block {
   if (typeof block !== "object" || block === null || Array.isArray(block)) throw new Error("a block must be an object");
   const b = block as Record<string, unknown>;
   if (typeof b.id !== "string" || !b.id) throw new Error("a block has no id");
@@ -56,7 +59,7 @@ function check(block: unknown, parent: string | null, depth: number, seen: Set<s
   if (typeof b.kind !== "string") throw new Error(`${at}: no kind`);
   const def = commandById(b.kind);
   if (!def) throw new Error(`${at}: unknown kind "${b.kind}"`);
-  if (parent !== null && !accepts(parent, b.kind)) throw new Error(`${at}: a ${def.word} block cannot go inside a ${parent} block`);
+  if (parent !== null && !accepts(parent, b.kind, list)) throw new Error(`${at}: a ${def.word} block cannot go inside a ${parent} block`);
 
   const args = b.args;
   if (typeof args !== "object" || args === null || Array.isArray(args)) throw new Error(`${at}: args must be an object`);
@@ -86,7 +89,7 @@ function check(block: unknown, parent: string | null, depth: number, seen: Set<s
   if (b.inner !== undefined) {
     if (!def.inner) throw new Error(`${at}: a ${def.word} block cannot hold other blocks`);
     if (!Array.isArray(b.inner)) throw new Error(`${at}: inner must be a list`);
-    for (const child of b.inner) check(child, b.kind, depth + 1, seen);
+    for (const child of b.inner) check(child, b.kind, pointListOf(b.kind, list), depth + 1, seen);
   }
 }
 
@@ -138,7 +141,7 @@ export function validateProgram(program: unknown): asserts program is Program {
       const ok = (v: unknown) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= MAX_AT;
       if (typeof pos !== "object" || pos === null || !ok(pos.x) || !ok(pos.y)) throw new Error(`${at}: at must be an x and a y, numbers no bigger than ${MAX_AT}`);
     }
-    for (const block of blocks) check(block, null, 0, seen);
+    for (const block of blocks) check(block, null, null, 0, seen);
     // every block is valid now, so each kind is known: say where it may not be
     const valid = { id, name, blocks } as Script;
     for (const block of valid.blocks) {

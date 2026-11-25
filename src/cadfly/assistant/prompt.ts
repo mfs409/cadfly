@@ -1,4 +1,4 @@
-import { COMMANDS, type CommandDef, FLAT_SHAPES, SHAPES, commandById } from "../language/commands";
+import { COMMANDS, type CommandDef, FLAT_SHAPES, POINT_HOLDERS, SHAPES, commandById } from "../language/commands";
 import { type ModeSpec, allowsScripts, offers } from "../ui/modes";
 import { allBlocks, findBuildIndex, isBlank } from "../language/program";
 import type { StlFileInfo } from "../language/files";
@@ -76,6 +76,8 @@ function holdsText(c: CommandDef): string {
   if (!c.inner || c.inner === SHAPES) return "";
   if (SHAPES.every((k) => c.inner!.includes(k))) return " Holds shapes.";
   if (FLAT_SHAPES.every((k) => c.inner!.includes(k))) return ` Holds flat shapes${c.inner.includes("vertex") ? " and vertex points" : ""}.`;
+  // a list of points: a repeat, if or set inside it makes points from a formula
+  if (c.id in POINT_HOLDERS) return ` Holds ${POINT_HOLDERS[c.id]}; repeat/if/set make them.`;
   return ` Holds: ${c.inner.join(", ")}.`;
 }
 
