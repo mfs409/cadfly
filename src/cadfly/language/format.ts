@@ -189,6 +189,17 @@ export function serializeProject(program: Program, files: StlFiles = {}): string
   return JSON.stringify({ blocks: VERSION, program, ...(Object.keys(files).length ? { files } : {}) }, null, 2);
 }
 
+/**
+ * Is this the program of a file from an older version, which was a list of
+ * blocks and not a list of scripts? Such a list has blocks (which have a `kind`)
+ * where a script (which has `blocks`) belongs.
+ *
+ * @param program The `program` part of a file.
+ */
+function isOldLayout(program: unknown): boolean {
+  return Array.isArray(program) && program.length > 0 && program.every((entry) => typeof entry === "object" && entry !== null && "kind" in entry && !("blocks" in entry));
+}
+
 /** Parse and validate a saved project. Throws Error with a readable message. */
 export function parseProject(text: string): Project {
   let data: unknown;
@@ -201,6 +212,9 @@ export function parseProject(text: string): Project {
     throw new Error("not a block program file (or from a newer version)");
   }
   const { program, files = {} } = data as { program?: unknown; files?: unknown };
+  if (isOldLayout(program)) {
+    throw new Error("this file was saved by an older version of CADFly, which kept its blocks in a different layout, so this version cannot open it");
+  }
   validateProgram(program);
   validateStlFiles(files);
   // `expanded` and `at` are no longer things a block has (a script has `at`); a file that still carries them on a block is loaded without them

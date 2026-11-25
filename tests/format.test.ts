@@ -54,6 +54,17 @@ describe("the file", () => {
     expect(serializeProject(loaded.program)).not.toContain('"at"');
   });
 
+  test("a file from an older version, which was a list of blocks, says so", () => {
+    const old = { blocks: 1, program: [{ id: "b1", kind: "box", args: { w: "10" } }, { id: "b2", kind: "sphere", args: { r: "5" } }] };
+    expect(() => parseProject(JSON.stringify(old))).toThrow(/older version of CADFly/);
+  });
+
+  test("a file whose scripts are wrong still says what is wrong with them, not that it is old", () => {
+    const wrong = { blocks: 1, program: [{ id: "s1", name: "build", blocks: "none" }] };
+    expect(() => parseProject(JSON.stringify(wrong))).toThrow(/script "build": blocks must be a list/);
+    expect(() => parseProject(JSON.stringify(wrong))).not.toThrow(/older version/);
+  });
+
   test("a place has to be numbers of sensible size", () => {
     const fails = (script: unknown, m: RegExp) => expect(() => validateProgram([script])).toThrow(m);
     const blocks = [box("a")];
